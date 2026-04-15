@@ -1,0 +1,26 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+db.sqlite3
+
+# Environment
+.env
+
+# Node
+frontend/node_modules/
+frontend/build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Media uploads
+media/
+
+# Mockups
+mockup-*.html
