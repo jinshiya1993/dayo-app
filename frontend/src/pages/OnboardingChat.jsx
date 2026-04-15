@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { profile as profileApi } from '../services/api';
 
-const API_BASE = 'http://localhost:8000/api/v1';
+const API_BASE = process.env.NODE_ENV === 'production' ? '/api/v1' : 'http://localhost:8000/api/v1';
 
 function getCookie(name) {
   const value = `; ${document.cookie}`;
