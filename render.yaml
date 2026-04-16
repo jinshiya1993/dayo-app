@@ -10,7 +10,7 @@ services:
     runtime: python
     plan: free
     buildCommand: ./build.sh
-    startCommand: gunicorn Dayo_project.wsgi:application
+    startCommand: gunicorn Dayo_project.wsgi:application --timeout 180 --workers 1 --threads 2 --worker-class gthread
     envVars:
       - key: DATABASE_URL
         fromDatabase:
