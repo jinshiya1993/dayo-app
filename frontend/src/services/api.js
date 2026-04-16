@@ -170,6 +170,7 @@ export const reminders = {
 // Kids Activities
 export const kidsActivities = {
   current: () => request('/kids-activities/current/'),
+  generate: () => request('/kids-activities/generate/', { method: 'POST' }),
   markRead: (dayId) => request(`/kids-activities/${dayId}/mark-read/`, { method: 'POST' }),
   downloadUrl: (dayId) => `${API_BASE}/kids-activities/${dayId}/download/`,
 };

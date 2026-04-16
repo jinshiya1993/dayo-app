@@ -34,6 +34,8 @@ export default function KidsActivitiesSection() {
   const [selectedChild, setSelectedChild] = useState(0);
   const [openSection, setOpenSection] = useState(null);
   const [markingRead, setMarkingRead] = useState(null);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState('');
 
   const fetchCurrent = useCallback(async () => {
     const res = await kidsActivities.current();
@@ -43,6 +45,19 @@ export default function KidsActivitiesSection() {
     }
     setLoading(false);
   }, []);
+
+  const handleRetry = async () => {
+    setRetrying(true);
+    setRetryError('');
+    const res = await kidsActivities.generate();
+    if (res.error) {
+      setRetryError(typeof res.error === 'string' ? res.error : 'Could not generate. Try again soon.');
+      setRetrying(false);
+      return;
+    }
+    setPlan(res);
+    setRetrying(false);
+  };
 
   useEffect(() => { fetchCurrent(); }, [fetchCurrent]);
 
@@ -91,8 +106,40 @@ export default function KidsActivitiesSection() {
     );
   }
 
-  if (!plan) {
-    return null;
+  if (!plan || !plan.children_progress?.length) {
+    return (
+      <>
+        <div className="section-header">
+          <div className="section-title">Kids Activities</div>
+        </div>
+        <div style={{
+          margin: '0 16px 12px', padding: 20, borderRadius: 14,
+          background: 'white', border: '0.5px solid #EDE8E3', textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>🎨</div>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
+            Activities aren't ready yet
+          </div>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 12, lineHeight: 1.4 }}>
+            We couldn't put this week's activities together. Give it another try.
+          </div>
+          <button
+            onClick={handleRetry}
+            disabled={retrying}
+            style={{
+              padding: '9px 20px', border: 'none', borderRadius: 22,
+              background: '#C2855A', color: 'white', fontWeight: 600, fontSize: 13,
+              cursor: retrying ? 'wait' : 'pointer', opacity: retrying ? 0.7 : 1,
+            }}
+          >
+            {retrying ? 'Generating…' : 'Try again'}
+          </button>
+          {retryError && (
+            <div style={{ fontSize: 11, color: '#DC3545', marginTop: 8 }}>{retryError}</div>
+          )}
+        </div>
+      </>
+    );
   }
 
   const { theme, days, children_progress } = plan;

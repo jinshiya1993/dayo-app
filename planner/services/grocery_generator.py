@@ -31,7 +31,8 @@ class GroceryGenerator:
     def generate_grocery_list(self, profile, week_start=None):
         """
         Generate a grocery list from the weekly meal plans already saved in DB.
-        Collects all planned meals, sends to AI to consolidate and scale.
+        Returns the new GroceryList on success, or None if AI generation fails
+        (so the previous active list stays intact and a future call can retry).
         """
         if week_start is None:
             today = date.today()
@@ -41,30 +42,16 @@ class GroceryGenerator:
         days = FREQUENCY_DAYS.get(profile.grocery_frequency, 7)
         end_date = week_start + timedelta(days=days - 1)
 
-        # Collect unchecked user-added items from previous list before closing it
-        carryover_items = []
-        prev_list = GroceryList.objects.filter(profile=profile).order_by('-generated_at').first()
-        if prev_list:
-            carryover_items = list(
-                prev_list.items.filter(checked=False, is_user_added=True).values('name', 'quantity', 'category')
-            )
+        # Step 1: Collect ingredients from existing meal plans
+        existing_meals = self._collect_existing_meals(profile, week_start, end_date)
 
-        # Mark any existing active lists as completed
-        GroceryList.objects.filter(profile=profile, completed=False).update(completed=True)
+        # Step 2: Get pantry items to exclude
+        pantry = list(profile.pantry_items.values_list('name', flat=True))
 
-        grocery_list = GroceryList.objects.create(
-            profile=profile,
-            week_start_date=week_start,
-        )
-
+        # Step 3: Build context and ask AI to generate consolidated grocery.
+        # We call the AI FIRST — before any DB mutations — so a failure here
+        # leaves the existing active list (if any) untouched for a clean retry.
         try:
-            # Step 1: Collect ingredients from existing meal plans
-            existing_meals = self._collect_existing_meals(profile, week_start, end_date)
-
-            # Step 2: Get pantry items to exclude
-            pantry = list(profile.pantry_items.values_list('name', flat=True))
-
-            # Step 3: Build context and ask AI to generate consolidated grocery
             assembler = AIContextAssembler(profile)
             system_prompt = self._build_system_prompt(assembler)
             user_message = self._build_user_message(
@@ -87,59 +74,72 @@ class GroceryGenerator:
                 except json.JSONDecodeError as e:
                     logger.error(f'Grocery JSON parse attempt {attempt + 1} failed: {e}')
                     if attempt == 0:
-                        # Add a reminder to the message for retry
                         messages.append(HumanMessage(content="Your response was not valid JSON. Return ONLY a valid JSON array, nothing else."))
-
-            if parsed_items:
-                self._save_items(grocery_list, parsed_items)
-            else:
-                logger.error('Grocery generation failed after 2 attempts')
-
-            # Carry over unchecked user-added items from previous list
-            existing_names = set(
-                grocery_list.items.values_list('name', flat=True)
-            )
-            if carryover_items:
-                for item in carryover_items:
-                    if item['name'] not in existing_names:
-                        GroceryItem.objects.create(
-                            grocery_list=grocery_list,
-                            name=item['name'],
-                            quantity=item.get('quantity', ''),
-                            category=item.get('category', 'other'),
-                            is_user_added=True,
-                        )
-                        existing_names.add(item['name'])
-
-            # Add low-stock essentials to grocery list
-            from ..models import EssentialsCheck
-            today = date.today()
-            yesterday = today - timedelta(days=1)
-            day_before = today - timedelta(days=2)
-            unchecked_y = set(
-                EssentialsCheck.objects.filter(
-                    profile=profile, date=yesterday, is_checked=False,
-                ).values_list('item', flat=True)
-            )
-            unchecked_db = set(
-                EssentialsCheck.objects.filter(
-                    profile=profile, date=day_before, is_checked=False,
-                ).values_list('item', flat=True)
-            )
-            low_items = unchecked_y & unchecked_db
-            for item_name in low_items:
-                if item_name not in existing_names:
-                    GroceryItem.objects.create(
-                        grocery_list=grocery_list,
-                        name=item_name,
-                        quantity='',
-                        category='other',
-                        is_user_added=True,
-                    )
-                    existing_names.add(item_name)
-
         except Exception as e:
-            logger.error(f'Grocery generation failed: {e}')
+            logger.error(f'Grocery AI call failed: {e}')
+            return None
+
+        if not parsed_items:
+            logger.error('Grocery generation failed after 2 attempts — keeping existing list intact.')
+            return None
+
+        # Collect unchecked user-added items from the previous list before closing it
+        carryover_items = []
+        prev_list = GroceryList.objects.filter(profile=profile).order_by('-generated_at').first()
+        if prev_list:
+            carryover_items = list(
+                prev_list.items.filter(checked=False, is_user_added=True).values('name', 'quantity', 'category')
+            )
+
+        # AI succeeded — safe to do DB mutations now
+        GroceryList.objects.filter(profile=profile, completed=False).update(completed=True)
+
+        grocery_list = GroceryList.objects.create(
+            profile=profile,
+            week_start_date=week_start,
+        )
+
+        self._save_items(grocery_list, parsed_items)
+
+        existing_names = set(grocery_list.items.values_list('name', flat=True))
+
+        for item in carryover_items:
+            if item['name'] not in existing_names:
+                GroceryItem.objects.create(
+                    grocery_list=grocery_list,
+                    name=item['name'],
+                    quantity=item.get('quantity', ''),
+                    category=item.get('category', 'other'),
+                    is_user_added=True,
+                )
+                existing_names.add(item['name'])
+
+        # Add low-stock essentials to grocery list
+        from ..models import EssentialsCheck
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        day_before = today - timedelta(days=2)
+        unchecked_y = set(
+            EssentialsCheck.objects.filter(
+                profile=profile, date=yesterday, is_checked=False,
+            ).values_list('item', flat=True)
+        )
+        unchecked_db = set(
+            EssentialsCheck.objects.filter(
+                profile=profile, date=day_before, is_checked=False,
+            ).values_list('item', flat=True)
+        )
+        low_items = unchecked_y & unchecked_db
+        for item_name in low_items:
+            if item_name not in existing_names:
+                GroceryItem.objects.create(
+                    grocery_list=grocery_list,
+                    name=item_name,
+                    quantity='',
+                    category='other',
+                    is_user_added=True,
+                )
+                existing_names.add(item_name)
 
         return grocery_list
 

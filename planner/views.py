@@ -1,6 +1,9 @@
+import logging
 from datetime import date, timedelta
 
 from django.contrib.auth import authenticate, login, logout
+
+logger = logging.getLogger(__name__)
 from django.db.models import Q
 from django.middleware.csrf import get_token
 from django.utils import timezone
@@ -172,7 +175,22 @@ class ChildViewSet(viewsets.ModelViewSet):
         return Child.objects.filter(parent=self.request.user.profile)
 
     def perform_create(self, serializer):
-        serializer.save(parent=self.request.user.profile)
+        profile = self.request.user.profile
+        serializer.save(parent=profile)
+
+        # Make sure the kids_activities section is visible on the dashboard.
+        # Users on non-parent user types (homemaker, new_mom, professional) don't
+        # get it by default, so adding a child also adds the section.
+        layout = list(profile.custom_layout or [])
+        if not any(item.get('key') == 'kids_activities' for item in layout):
+            layout.append({
+                'key': 'kids_activities',
+                'visible': True,
+                'locked': False,
+                'added_by_ai': False,
+            })
+            profile.custom_layout = layout
+            profile.save(update_fields=['custom_layout'])
 
 
 # -------------------------------------------------------------------
@@ -247,8 +265,8 @@ class GeneratePlanView(APIView):
             try:
                 kids_gen = KidsActivityGenerator()
                 kids_gen.generate_weekly_plan(profile)  # no-op if already exists
-            except Exception:
-                pass  # Don't block day plan if kids activities fail
+            except Exception as e:
+                logger.error(f'Auto kids activities generation during plan generate failed: {e}')
 
         # Auto-generate grocery list if none exists for this week
         # Skip if user already completed one this week (they've already shopped)
@@ -265,8 +283,8 @@ class GeneratePlanView(APIView):
             if not has_active and not has_completed_this_week:
                 grocery_gen = GroceryGenerator()
                 grocery_gen.generate_grocery_list(profile)
-        except Exception:
-            pass  # Don't block day plan if grocery fails
+        except Exception as e:
+            logger.error(f'Auto grocery generation during plan generate failed: {e}')
 
         serializer = DayPlanSerializer(day_plan)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -783,14 +801,38 @@ class GroceryCurrentView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        profile = request.user.profile
         grocery_list = GroceryList.objects.filter(
-            profile=request.user.profile,
-            completed=False,
+            profile=profile, completed=False,
         ).first()
+
+        # Self-heal: if there's no active list, no completed list this week, and
+        # meals are planned for the week, auto-generate. This covers silent
+        # failures of the auto-gen during plans.generate() and week rollovers
+        # where the previous week's list was abandoned.
+        if not grocery_list:
+            today = date.today()
+            week_start = today - timedelta(days=today.weekday())
+            end_of_week = week_start + timedelta(days=6)
+            has_completed_this_week = GroceryList.objects.filter(
+                profile=profile, completed=True,
+                week_start_date__gte=week_start,
+            ).exists()
+            has_meals_planned = DayPlan.objects.filter(
+                profile=profile,
+                date__gte=today,
+                date__lte=end_of_week,
+                status='ready',
+            ).exists()
+            if not has_completed_this_week and has_meals_planned:
+                try:
+                    grocery_list = GroceryGenerator().generate_grocery_list(profile)
+                except Exception as e:
+                    logger.error(f'On-demand grocery generation failed: {e}')
 
         if not grocery_list:
             return Response(
-                {'error': 'No active grocery list. Generate one first.'},
+                {'error': 'No active grocery list.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -805,6 +847,12 @@ class GroceryGenerateView(APIView):
         profile = request.user.profile
         generator = GroceryGenerator()
         grocery_list = generator.generate_grocery_list(profile)
+
+        if not grocery_list:
+            return Response(
+                {'error': 'Could not generate grocery list right now. Please try again in a moment.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         serializer = GroceryListSerializer(grocery_list)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -1689,27 +1737,37 @@ class OnboardingChatView(APIView):
 # Kids Activities
 # -------------------------------------------------------------------
 class GenerateKidsActivitiesView(APIView):
-    """POST /api/v1/kids-activities/generate/ — generate this week's plan."""
+    """POST /api/v1/kids-activities/generate/ — generate (or retry) this week's plan.
+
+    Also serves as a manual retry from the dashboard when a previous
+    generation failed and left no usable plan. If an existing plan for the
+    week has zero days (failed generation left an empty shell), it's cleared
+    and regenerated. A healthy plan is left alone.
+    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         profile = request.user.profile
-        children = profile.children.exists()
-        if not children:
+        if not profile.children.exists():
             return Response(
                 {'error': 'Add children to your profile before generating activities.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Check for existing plan this week
         today = date.today()
         week_start = today - timedelta(days=today.weekday())
 
-        if KidsActivityPlan.objects.filter(profile=profile, week_start_date=week_start).exists():
-            return Response(
-                {'error': 'Activities already generated for this week.'},
-                status=status.HTTP_409_CONFLICT,
-            )
+        existing = KidsActivityPlan.objects.filter(
+            profile=profile, week_start_date=week_start,
+        ).first()
+        if existing:
+            if existing.days.exists():
+                return Response(
+                    {'error': 'Activities already generated for this week.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            # Empty shell from a failed generation — wipe and retry.
+            existing.delete()
 
         try:
             generator = KidsActivityGenerator()
@@ -1717,9 +1775,10 @@ class GenerateKidsActivitiesView(APIView):
             serializer = KidsActivityPlanSerializer(plan)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         except Exception as e:
+            logger.error(f'Manual kids activities generation failed: {e}')
             return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {'error': 'Could not generate activities right now. Please try again in a moment.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
 
@@ -1751,15 +1810,16 @@ class CurrentKidsActivitiesView(APIView):
                     try:
                         generator = KidsActivityGenerator()
                         generator.regenerate_for_child(plan, child)
-                    except Exception:
-                        pass  # Don't break if one child's regen fails
+                    except Exception as e:
+                        logger.error(f'Per-child kids activities regen failed for {child.name}: {e}')
 
         # Auto-generate if user has children but no plan
         if not plan and has_children:
             try:
                 generator = KidsActivityGenerator()
                 plan = generator.generate_weekly_plan(profile, week_start)
-            except Exception:
+            except Exception as e:
+                logger.error(f'On-demand kids activities generation failed: {e}')
                 return Response({'plan': None, 'has_children': has_children})
 
         if not plan:
