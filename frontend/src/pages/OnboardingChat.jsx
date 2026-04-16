@@ -261,7 +261,7 @@ export default function OnboardingChat() {
           }}
         />
         <button
-          onClick={sendMessage}
+          onClick={() => sendMessage()}
           disabled={!input.trim() || sending || typing}
           style={{
             width: 40, height: 40, borderRadius: '50%',
