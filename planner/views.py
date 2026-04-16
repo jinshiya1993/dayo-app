@@ -1683,34 +1683,42 @@ class OnboardingChatView(APIView):
         profile.onboarding_complete = True
         profile.save()
 
-        # Create children
-        for child_data in data.get('children', []):
-            if child_data.get('name'):
-                today = date.today()
-                age = child_data.get('age', 0)
-                age_months = child_data.get('age_months', 0)
+        # Create children — if only age was mentioned (no name), use a
+        # placeholder like "Child 1" so the child still gets created and
+        # activities can generate. The user can rename in profile settings.
+        for idx, child_data in enumerate(data.get('children', []), start=1):
+            name = (child_data.get('name') or '').strip()
+            age = child_data.get('age', 0)
+            age_months = child_data.get('age_months', 0)
 
-                if age_months and age_months > 0:
-                    # Baby — age given in months
-                    months = int(age_months)
-                    year = today.year if today.month > months else today.year - 1
-                    month = today.month - months
-                    if month <= 0:
-                        month += 12
-                        year -= 1
-                    dob = date(year, max(1, min(12, month)), 1)
-                else:
-                    # Older child — age given in years
-                    age_int = max(0, int(float(age)))
-                    dob = date(today.year - age_int, 1, 1)
+            if not name and not age and not age_months:
+                continue
 
-                Child.objects.create(
-                    parent=profile,
-                    name=child_data['name'],
-                    date_of_birth=dob,
-                    interests=child_data.get('interests', []),
-                    school_name=child_data.get('school_name', ''),
-                )
+            if not name:
+                name = f'Child {idx}'
+
+            today = date.today()
+            if age_months and age_months > 0:
+                # Baby — age given in months
+                months = int(age_months)
+                year = today.year if today.month > months else today.year - 1
+                month = today.month - months
+                if month <= 0:
+                    month += 12
+                    year -= 1
+                dob = date(year, max(1, min(12, month)), 1)
+            else:
+                # Older child — age given in years
+                age_int = max(0, int(float(age)))
+                dob = date(today.year - age_int, 1, 1)
+
+            Child.objects.create(
+                parent=profile,
+                name=name,
+                date_of_birth=dob,
+                interests=child_data.get('interests', []),
+                school_name=child_data.get('school_name', ''),
+            )
 
         # Create schedule events
         for event_data in data.get('schedule_events', []):
