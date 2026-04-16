@@ -470,38 +470,39 @@ class PlanGenerator:
         housework_rules = ''
         if profile.user_type in ('homemaker', 'parent', 'working_mom', 'new_mom'):
             template_names = self._get_template_tasks(profile, target_date)
-            weekday = target_date.weekday()
-            is_weekend = weekday >= 5
 
             if profile.user_type == 'new_mom':
-                solo = profile.support_type == 'flying_solo'
-                target_total = 1 if solo else 2
-            elif profile.user_type in ('working_mom',):
-                target_total = 4 if not is_weekend else 6
+                housework_rules = self._new_mom_housework_rules(profile, template_names)
             else:
-                target_total = 6 if not is_weekend else 8
+                weekday = target_date.weekday()
+                is_weekend = weekday >= 5
 
-            ai_count = max(1, target_total - len(template_names))
+                if profile.user_type == 'working_mom':
+                    target_total = 4 if not is_weekend else 6
+                else:
+                    target_total = 6 if not is_weekend else 8
 
-            housework_rules = (
-                f"\nHousework rules:\n"
-                f"- Generate EXACTLY {ai_count} housework tasks in the 'housework' array\n"
-                f"- Short task names (2-4 words), action-based\n"
-                f"- e.g. 'Vacuum and mop', 'Do laundry', 'Wash dishes', 'Dust furniture'\n"
-                f"- Do NOT specify rooms — say 'Vacuum and mop' NOT 'Vacuum living room'\n"
-                f"- Vary tasks day to day\n"
-            )
+                ai_count = max(1, target_total - len(template_names))
 
-            if template_names:
-                housework_rules += (
-                    f"- These recurring tasks are already scheduled: {', '.join(template_names)}\n"
-                    f"- Do NOT include any of those in the housework array — generate DIFFERENT tasks\n"
+                housework_rules = (
+                    f"\nHousework rules:\n"
+                    f"- Generate EXACTLY {ai_count} housework tasks in the 'housework' array\n"
+                    f"- Short task names (2-4 words), action-based\n"
+                    f"- e.g. 'Vacuum and mop', 'Do laundry', 'Wash dishes', 'Dust furniture'\n"
+                    f"- Do NOT specify rooms — say 'Vacuum and mop' NOT 'Vacuum living room'\n"
+                    f"- Vary tasks day to day\n"
                 )
 
-            if profile.home_help_type == 'partial_help':
-                housework_rules += (
-                    f"- This user has part-time domestic help — frame tasks as clear instructions for a helper\n"
-                )
+                if template_names:
+                    housework_rules += (
+                        f"- These recurring tasks are already scheduled: {', '.join(template_names)}\n"
+                        f"- Do NOT include any of those in the housework array — generate DIFFERENT tasks\n"
+                    )
+
+                if profile.home_help_type == 'partial_help':
+                    housework_rules += (
+                        f"- This user has part-time domestic help — frame tasks as clear instructions for a helper\n"
+                    )
 
         return (
             f"Generate my complete day plan for {day_name}, {date_str}.\n"
@@ -546,6 +547,93 @@ class PlanGenerator:
             f"{self._build_custom_sections_prompt(custom_sections)}"
             "- Return ONLY valid JSON, no other text\n"
         )
+
+    def _new_mom_housework_rules(self, profile, template_names):
+        """Postpartum-safe housework rules scaled to the mom's recovery stage.
+
+        Replaces the generic housework prompt for new_mom user type so the AI
+        doesn't hand a week-3-postpartum mom tasks like vacuuming or mopping.
+        If she has a part-time helper, heavy tasks are allowed (framed as
+        helper instructions) because she isn't the one doing them.
+        """
+        from .ai_context import build_new_mom_context
+        ctx = build_new_mom_context(profile)
+        weeks = ctx['weeks_postpartum']
+        had_csection = ctx['had_csection']
+        solo = ctx['support_type'] == 'flying_solo'
+
+        # Part-time helper case: tasks are for the helper, so heavy tasks are fine
+        if profile.home_help_type == 'partial_help':
+            count = 1 if solo else 2
+            ai_count = max(1, count - len(template_names))
+            rules = (
+                f"\nHousework rules (new mom with part-time helper):\n"
+                f"- Generate EXACTLY {ai_count} task(s) framed as instructions for her helper\n"
+                f"- Heavy tasks OK since the helper does them (vacuum, laundry, dishes, etc.)\n"
+                f"- Short task names (2-4 words), action-based\n"
+                f"- Do NOT specify rooms — say 'Vacuum and mop' NOT 'Vacuum living room'\n"
+                f"- Vary tasks day to day\n"
+            )
+            if template_names:
+                rules += (
+                    f"- Already scheduled: {', '.join(template_names)} — pick DIFFERENT tasks\n"
+                )
+            return rules
+
+        # Stage 1: weeks 0-2 — immediate recovery, no housework
+        if weeks <= 2:
+            return (
+                f"\nHousework rules (new mom, {weeks} weeks postpartum"
+                f"{', post C-section' if had_csection else ''} — immediate recovery):\n"
+                "- Return an EMPTY 'housework' array: []\n"
+                "- She needs rest. No household tasks. Focus on baby, meals, and healing.\n"
+            )
+
+        # Shared: forbidden + safe lists for recovering moms (no helper)
+        forbidden = (
+            "- NEVER suggest: vacuuming, mopping, sweeping, washing dishes at the sink,\n"
+            "  scrubbing, cleaning bathrooms or toilets, carrying laundry baskets,\n"
+            "  deep cleaning, changing bedsheets, lifting heavier than the baby,\n"
+            "  prolonged standing, deep bending, reaching overhead.\n"
+        )
+        safe_examples = (
+            "- ONLY suggest light, seated-or-short-standing micro-tasks like:\n"
+            "  'Fold baby clothes' (sitting), 'Rinse bottles', 'Wipe changing table',\n"
+            "  'Tidy play mat area', 'Sort mail', 'Quick counter wipe', 'Put 5 items away'.\n"
+        )
+
+        # Stage 2: weeks 2-6 (or <12 if C-section) — early recovery, one micro-task
+        early_recovery = weeks <= 6 or (had_csection and weeks < 12)
+        if early_recovery:
+            header = (
+                f"\nHousework rules (new mom, {weeks} weeks postpartum"
+                f"{', post C-section' if had_csection else ''} — early recovery):\n"
+                "- Generate EXACTLY 1 housework task.\n"
+                "- Under 5 minutes, seated or very short standing.\n"
+            )
+        else:
+            # Stage 3: weeks 6+ (vaginal) / 12+ (C-section) — light tasks only
+            count = 1 if solo else 2
+            header = (
+                f"\nHousework rules (new mom, {weeks} weeks postpartum):\n"
+                f"- Generate EXACTLY {count} housework task(s).\n"
+                "- Each task under 10 minutes and light. Still avoid heavy cleaning.\n"
+            )
+
+        solo_note = ''
+        if solo:
+            solo_note = (
+                "- She is flying solo — tasks must be doable while baby is on the\n"
+                "  play mat in view. No leaving the room.\n"
+            )
+
+        template_note = ''
+        if template_names:
+            template_note = (
+                f"- Already scheduled: {', '.join(template_names)} — pick DIFFERENT micro-tasks.\n"
+            )
+
+        return header + forbidden + safe_examples + solo_note + template_note
 
     def _build_custom_sections_prompt(self, custom_sections):
         """Build prompt instructions for user-added custom sections."""
