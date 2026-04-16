@@ -143,7 +143,7 @@ export default function OnboardingChat() {
 
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', height: '100vh', maxWidth: 430, margin: '0 auto', background: '#FAF7F5',
+      display: 'flex', flexDirection: 'column', height: '100dvh', maxWidth: 430, margin: '0 auto', background: '#FAF7F5',
       opacity: fadeOut ? 0 : 1, transition: 'opacity 0.6s ease-out',
     }}>
 

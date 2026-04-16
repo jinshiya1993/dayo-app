@@ -51,7 +51,7 @@ export default function OnboardingLoading() {
 
   return (
     <div style={{
-      minHeight: '100vh', background: '#1a1a1a',
+      minHeight: '100dvh', background: '#1a1a1a',
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
       animation: 'fadeIn 0.6s ease-in',

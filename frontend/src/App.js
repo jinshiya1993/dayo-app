@@ -40,7 +40,7 @@ function App() {
   if (authed === null) {
     return (
       <div className="app-shell">
-        <div className="loading" style={{ minHeight: '100vh' }}>
+        <div className="loading" style={{ minHeight: '100dvh' }}>
           <div className="spinner" />
         </div>
       </div>
