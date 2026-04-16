@@ -22,6 +22,9 @@ function App() {
     // Don't re-check auth while on onboarding screens —
     // prevents redirect race condition when onboarding_complete becomes true
     if (location.pathname.startsWith('/onboarding')) return;
+    // Leaving onboarding before state has refreshed — show loader instead of
+    // flashing the OnboardingPage fallback while checkAuth is in flight.
+    if (!onboarded) setAuthed(null);
     checkAuth();
   }, [location.pathname]);
 
