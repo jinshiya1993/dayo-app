@@ -314,7 +314,8 @@ export default function OnboardingPreview() {
       {/* ── 5. Action Buttons ─────────────────────────────── */}
       <div style={{
         position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
-        width: '100%', maxWidth: 390, padding: '12px 16px 24px',
+        width: '100%', maxWidth: 390,
+        padding: '12px 16px calc(24px + env(safe-area-inset-bottom)) 16px',
         background: 'white', borderTop: '0.5px solid #EDE8E3',
       }}>
         <div style={{
