@@ -62,16 +62,17 @@ function App() {
   }
 
   // Authenticated but not onboarded
+  // No app-shell wrapper: onboarding pages manage their own layout, and the
+  // shell's bottom padding (reserved for BottomNav) would leave dead space
+  // below the chat input.
   if (!onboarded) {
     return (
-      <div className="app-shell">
-        <Routes>
-          <Route path="/onboarding" element={<OnboardingPage />} />
-          <Route path="/onboarding/chat" element={<OnboardingChat />} />
-          <Route path="/onboarding/preview" element={<OnboardingPreview />} />
-          <Route path="*" element={<Navigate to="/onboarding" replace />} />
-        </Routes>
-      </div>
+      <Routes>
+        <Route path="/onboarding" element={<OnboardingPage />} />
+        <Route path="/onboarding/chat" element={<OnboardingChat />} />
+        <Route path="/onboarding/preview" element={<OnboardingPreview />} />
+        <Route path="*" element={<Navigate to="/onboarding" replace />} />
+      </Routes>
     );
   }
 

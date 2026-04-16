@@ -244,7 +244,7 @@ export default function OnboardingChat() {
       </div>
 
       {/* Input bar */}
-      <div style={{ padding: '12px 16px', borderTop: '0.5px solid #EDE8E3', background: 'white', display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ padding: '12px 16px calc(12px + env(safe-area-inset-bottom)) 16px', borderTop: '0.5px solid #EDE8E3', background: 'white', display: 'flex', gap: 8, alignItems: 'center' }}>
         <input
           ref={inputRef}
           value={input}
