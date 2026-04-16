@@ -1683,15 +1683,16 @@ class OnboardingChatView(APIView):
         profile.onboarding_complete = True
         profile.save()
 
-        # Create children — if only age was mentioned (no name), use a
-        # placeholder like "Child 1" so the child still gets created and
-        # activities can generate. The user can rename in profile settings.
+        # Create children. Missing age → skip (we can't plan without it, and
+        # guessing produces wildly wrong activities). Missing name but known
+        # age → save as "Child N" placeholder so the plan still works; the
+        # user can rename in profile settings.
         for idx, child_data in enumerate(data.get('children', []), start=1):
             name = (child_data.get('name') or '').strip()
             age = child_data.get('age', 0)
             age_months = child_data.get('age_months', 0)
 
-            if not name and not age and not age_months:
+            if not age and not age_months:
                 continue
 
             if not name:
