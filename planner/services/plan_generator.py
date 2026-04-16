@@ -149,6 +149,19 @@ class PlanGenerator:
     # ------------------------------------------------------------------
     # Weekly meal generation — generates 7 days of meals in one AI call
     # ------------------------------------------------------------------
+    @staticmethod
+    def _meals_are_complete(meals):
+        """True when breakfast, lunch, and dinner all have a non-empty name."""
+        if not isinstance(meals, dict):
+            return False
+        for mt in ('breakfast', 'lunch', 'dinner'):
+            m = meals.get(mt)
+            if not isinstance(m, dict):
+                return False
+            if not (m.get('name') or '').strip():
+                return False
+        return True
+
     def generate_weekly_meals(self, profile, start_date=None, num_days=7):
         """Generate meals for multiple days in one AI call.
         Returns list of DayPlan objects created/updated.
@@ -178,6 +191,7 @@ class PlanGenerator:
             HumanMessage(content=user_message),
         ]
 
+        logger.info(f'Weekly meals: requesting {num_days} days from {start_date}')
         try:
             response = self.llm.invoke(messages)
             raw_content = response.content
@@ -188,11 +202,21 @@ class PlanGenerator:
                 return []
 
             created_plans = []
+            skipped = 0
             for day_data in weekly_data.get('days', []):
                 day_date_str = day_data.get('date', '')
                 try:
                     day_date = datetime.strptime(day_date_str, '%Y-%m-%d').date()
                 except (ValueError, TypeError):
+                    continue
+
+                # Skip days whose meals came back incomplete — leave them
+                # unplanned so the next ensure_meals_ahead call retries, rather
+                # than poison the DayPlan with a ready-but-empty meals dict.
+                day_meals = day_data.get('meals') or {}
+                if not self._meals_are_complete(day_meals):
+                    logger.warning(f'Weekly meals: skipping {day_date_str} — incomplete meals from AI')
+                    skipped += 1
                     continue
 
                 # Create or update day plan
@@ -209,7 +233,7 @@ class PlanGenerator:
 
                 # Store meals
                 meals_key = 'mom_meals' if user_type == 'new_mom' else 'meals'
-                plan_data[meals_key] = day_data.get('meals', {})
+                plan_data[meals_key] = day_meals
 
                 # Store health banner
                 if day_data.get('meal_health_banner'):
@@ -224,6 +248,7 @@ class PlanGenerator:
                 self._save_meals_from_plan_data(day_plan, plan_data)
                 created_plans.append(day_plan)
 
+            logger.info(f'Weekly meals: saved {len(created_plans)} days, skipped {skipped}')
             return created_plans
 
         except json.JSONDecodeError as e:
@@ -234,26 +259,38 @@ class PlanGenerator:
             return []
 
     def ensure_meals_ahead(self, profile, min_days=3, total_days=7):
-        """Auto-fill: if fewer than min_days have meals planned, generate more."""
+        """Auto-fill: if fewer than min_days have COMPLETE meals planned, generate more.
+        A DayPlan with status=ready but empty/partial meals counts as unplanned
+        so we retry instead of leaving the user with blank meal cards.
+        """
         today = date.today()
-        planned_count = DayPlan.objects.filter(
+        window_end = today + timedelta(days=total_days - 1)
+        ready_plans = DayPlan.objects.filter(
             profile=profile,
             date__gte=today,
-            date__lte=today + timedelta(days=total_days - 1),
+            date__lte=window_end,
             status='ready',
-        ).count()
+        )
+        meals_key_for = lambda ut: 'mom_meals' if ut == 'new_mom' else 'meals'
+        ready_dates = {
+            p.date for p in ready_plans
+            if self._meals_are_complete(
+                (p.plan_data or {}).get(meals_key_for(p.plan_data.get('user_type') if p.plan_data else profile.user_type), {})
+            )
+        }
+        planned_count = len(ready_dates)
 
         if planned_count < min_days:
-            # Find first unplanned day
+            # First day in the window that isn't already planned-with-meals
             start = today
             for i in range(total_days):
                 d = today + timedelta(days=i)
-                if not DayPlan.objects.filter(profile=profile, date=d, status='ready').exists():
+                if d not in ready_dates:
                     start = d
                     break
 
-            # Count how many days to generate
             days_needed = total_days - planned_count
+            logger.info(f'ensure_meals_ahead: {planned_count}/{total_days} complete — generating {days_needed} from {start}')
             return self.generate_weekly_meals(profile, start, days_needed)
         return []
 
@@ -403,10 +440,15 @@ class PlanGenerator:
             parsed['date'] = str(target_date)
             parsed['user_type'] = user_type
 
-            # If weekly meals exist, preserve them over AI-generated ones
-            if existing_meals:
-                meals_key = 'mom_meals' if user_type == 'new_mom' else 'meals'
+            # Preserve weekly meals only if they're actually usable. A truthy
+            # but incomplete existing_meals dict (e.g. all-null values) would
+            # otherwise wipe out the day-plan AI's valid meals.
+            meals_key = 'mom_meals' if user_type == 'new_mom' else 'meals'
+            if self._meals_are_complete(existing_meals):
                 parsed[meals_key] = existing_meals
+                logger.info(f'Day plan {target_date}: using weekly meals')
+            elif not self._meals_are_complete(parsed.get(meals_key)):
+                logger.warning(f'Day plan {target_date}: both weekly and day-plan meals missing/incomplete')
 
             day_plan.plan_data = parsed
 
