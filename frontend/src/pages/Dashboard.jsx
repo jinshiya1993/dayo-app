@@ -6,6 +6,7 @@ import DynamicDashboard from '../components/DynamicDashboard';
 import {
   plans, reminders as remindersApi,
   profile as profileApi, children as childrenApi,
+  kidsActivities, grocery,
 } from '../services/api';
 
 export default function Dashboard() {
@@ -45,6 +46,16 @@ export default function Dashboard() {
       setPlan(result);
       const rem = await remindersApi.upcoming();
       if (!rem.error) setUpcomingReminders(rem);
+
+      // Fire kids + grocery as separate requests so each runs on a fresh
+      // worker and memory is released between AI calls. Sequential on
+      // purpose — parallel would land on the same worker and defeat this.
+      (async () => {
+        if (childList.length > 0) {
+          await kidsActivities.generate().catch(() => {});
+        }
+        await grocery.generate().catch(() => {});
+      })();
     }
     setPlanning(false);
   }
