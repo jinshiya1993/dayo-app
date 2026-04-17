@@ -255,8 +255,12 @@ class ProfileBuilderAgent:
             temperature=0.7,
             max_output_tokens=2048,
         )
+        # Gemini rejects a request whose only message is a SystemMessage
+        # (it becomes system_instruction and leaves `contents` empty).
+        # Seed a HumanMessage so the opening turn has something to respond to.
         self.messages = [
             SystemMessage(content=SYSTEM_PROMPT.format(name=name, user_type=user_type)),
+            HumanMessage(content='Please send your opening message now.'),
         ]
         self.exchange_count = 0
 
