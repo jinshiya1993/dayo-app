@@ -19,6 +19,7 @@ class ChatService:
             google_api_key=settings.GEMINI_API_KEY,
             temperature=0.7,
             max_output_tokens=2048,
+            transport='rest',
         )
         self.llm = base_llm.bind_tools(get_all_tools())
 

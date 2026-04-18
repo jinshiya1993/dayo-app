@@ -330,6 +330,7 @@ class SwapMealView(APIView):
                 google_api_key=django_settings.GEMINI_API_KEY,
                 temperature=0.8,
                 max_output_tokens=2048,
+                transport='rest',
             )
 
             fav_text = f"\nThe user's favourite meals (try to vary from these but use similar style): {', '.join(favourites)}" if favourites else ""
@@ -418,6 +419,7 @@ class SubstituteMealView(APIView):
             google_api_key=settings.GEMINI_API_KEY,
             temperature=0.7,
             max_output_tokens=2048,
+            transport='rest',
         )
 
         messages = [
@@ -572,6 +574,7 @@ class ChangeMealView(APIView):
             google_api_key=settings.GEMINI_API_KEY,
             temperature=0.7,
             max_output_tokens=2048,
+            transport='rest',
         )
 
         messages = [

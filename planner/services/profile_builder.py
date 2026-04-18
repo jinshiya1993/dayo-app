@@ -254,6 +254,7 @@ class ProfileBuilderAgent:
             google_api_key=settings.GEMINI_API_KEY,
             temperature=0.7,
             max_output_tokens=2048,
+            transport='rest',
         )
         # Gemini rejects a request whose only message is a SystemMessage
         # (it becomes system_instruction and leaves `contents` empty).

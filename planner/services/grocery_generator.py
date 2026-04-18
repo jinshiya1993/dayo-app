@@ -26,6 +26,7 @@ class GroceryGenerator:
             google_api_key=settings.GEMINI_API_KEY,
             temperature=0.5,
             max_output_tokens=16384,
+            transport='rest',
         )
 
     def generate_grocery_list(self, profile, week_start=None):

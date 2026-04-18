@@ -102,9 +102,13 @@ if REACT_BUILD_DIR.exists() and (REACT_BUILD_DIR / 'static').exists():
 
 STORAGES = {
     'staticfiles': {
-        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
     },
 }
+
+# Serve React build root (favicon.ico, manifest.json, logo*.png) at URL root
+if REACT_BUILD_DIR.exists():
+    WHITENOISE_ROOT = REACT_BUILD_DIR
 
 # Media files
 MEDIA_URL = '/media/'

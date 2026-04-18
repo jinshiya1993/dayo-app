@@ -227,6 +227,7 @@ def _execute_swap_meal(profile, args):
         google_api_key=settings.GEMINI_API_KEY,
         temperature=0.8,
         max_output_tokens=2048,
+        transport='rest',
     )
 
     messages = [

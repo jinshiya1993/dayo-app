@@ -102,6 +102,7 @@ class KidsActivityGenerator:
             google_api_key=settings.GEMINI_API_KEY,
             temperature=0.7,
             max_output_tokens=16384,
+            transport='rest',
         )
 
     def generate_weekly_plan(self, profile, week_start=None):
