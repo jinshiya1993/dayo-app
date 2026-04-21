@@ -108,9 +108,23 @@ class KidsActivityGenerator:
             HumanMessage(content=user_message),
         ]
 
-        response = self.llm.invoke(messages)
-        raw_content = response.content
-        parsed = self._parse_response(raw_content)
+        parsed = None
+        raw_content = ''
+        for attempt in range(2):
+            response = self.llm.invoke(messages)
+            raw_content = response.content
+            try:
+                parsed = self._parse_response(raw_content)
+                break
+            except json.JSONDecodeError as e:
+                logger.error(f'Kids activities JSON parse attempt {attempt + 1} failed: {e}')
+                if attempt == 0:
+                    messages.append(HumanMessage(
+                        content="Your response was not valid JSON. Return ONLY a complete, valid JSON object, nothing else."
+                    ))
+
+        if not parsed:
+            raise ValueError('Kids activity generation returned invalid JSON after 2 attempts.')
 
         theme = parsed.get('theme', 'Today')
 
