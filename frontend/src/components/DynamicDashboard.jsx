@@ -111,7 +111,7 @@ function getQuickChips(planData, childList, layout) {
 }
 
 // ─── Component ───────────────────────────────────────────────────
-export default function DynamicDashboard({ plan, profileData, childList, onPlanDay, planning, planDate, onPlanUpdate }) {
+export default function DynamicDashboard({ plan, profileData, childList, planDate, onPlanUpdate }) {
   const planData = plan?.plan_data || {};
   const userType = planData.user_type || profileData?.user_type || 'homemaker';
   const layout = buildLayout(profileData, userType);
@@ -120,7 +120,7 @@ export default function DynamicDashboard({ plan, profileData, childList, onPlanD
   return (
     <>
       {/* Greeting always first */}
-      <GreetingSection profileData={profileData} onPlanDay={onPlanDay} planning={planning} />
+      <GreetingSection profileData={profileData} />
 
       {/* Morning greeting — new mom only */}
       {userType === 'new_mom' && planData.morning_greeting && (

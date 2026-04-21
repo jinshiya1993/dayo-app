@@ -1,4 +1,4 @@
-export default function GreetingStrip({ displayName, onPlanDay, loading }) {
+export default function GreetingStrip({ displayName }) {
   const now = new Date();
   const hour = now.getHours();
   let greeting = 'Good morning';
@@ -18,9 +18,6 @@ export default function GreetingStrip({ displayName, onPlanDay, loading }) {
         <div className="greeting-name">{displayName || 'there'}</div>
         <div className="greeting-date">{dateStr}</div>
       </div>
-      <button className="btn-brand" onClick={onPlanDay} disabled={loading}>
-        {loading ? 'Planning...' : 'Plan my day'}
-      </button>
     </div>
   );
 }

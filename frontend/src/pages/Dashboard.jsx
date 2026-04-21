@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [plan, setPlan] = useState(null);
   const [upcomingReminders, setUpcomingReminders] = useState([]);
   const [planning, setPlanning] = useState(false);
+  const [planError, setPlanError] = useState('');
   const [loading, setLoading] = useState(true);
 
   const today = new Date().toISOString().split('T')[0];
@@ -33,30 +34,42 @@ export default function Dashboard() {
     ]);
 
     if (!prof.error) setProfileData(prof);
-    if (!ch.error) setChildList(Array.isArray(ch) ? ch : []);
-    if (!todayPlan.error) setPlan(todayPlan);
+    const children = !ch.error && Array.isArray(ch) ? ch : [];
+    setChildList(children);
+
+    const hasPlan = todayPlan && !todayPlan.error;
+    if (hasPlan) setPlan(todayPlan);
     if (!rem.error) setUpcomingReminders(rem);
     setLoading(false);
+
+    if (!hasPlan) {
+      runPlanGeneration(children);
+    }
   }
 
-  async function handlePlanDay() {
+  async function runPlanGeneration(children) {
     setPlanning(true);
+    setPlanError('');
     const result = await plans.generate();
-    if (!result.error) {
-      setPlan(result);
-      const rem = await remindersApi.upcoming();
-      if (!rem.error) setUpcomingReminders(rem);
-
-      // Fire kids + grocery as separate requests so each runs on a fresh
-      // worker and memory is released between AI calls. Sequential on
-      // purpose — parallel would land on the same worker and defeat this.
-      (async () => {
-        if (childList.length > 0) {
-          await kidsActivities.generate().catch(() => {});
-        }
-        await grocery.generate().catch(() => {});
-      })();
+    if (result.error) {
+      setPlanError('Could not create your plan right now. Try again in a moment.');
+      setPlanning(false);
+      return;
     }
+    setPlan(result);
+    const rem = await remindersApi.upcoming();
+    if (!rem.error) setUpcomingReminders(rem);
+
+    // Fire kids + grocery as separate requests so each runs on a fresh
+    // worker and memory is released between AI calls. Sequential on
+    // purpose — parallel would land on the same worker and defeat this.
+    (async () => {
+      if (children.length > 0) {
+        await kidsActivities.generate().catch(() => {});
+      }
+      await grocery.generate().catch(() => {});
+    })();
+
     setPlanning(false);
   }
 
@@ -73,27 +86,38 @@ export default function Dashboard() {
     <>
       <LogoBar displayName={profileData?.display_name} />
 
-      {/* No plan yet */}
       {!plan && (
         <>
-          <GreetingStrip
-            displayName={profileData?.display_name}
-            onPlanDay={handlePlanDay}
-            loading={planning}
-          />
+          <GreetingStrip displayName={profileData?.display_name} />
           <AlertPill reminders={upcomingReminders} />
-          {!planning && (
-            <div className="empty-state">
-              <div className="empty-state-emoji">🌅</div>
-              <div className="empty-state-text">
-                No plan for today yet. Tap "Plan my day" to get started!
-              </div>
-            </div>
-          )}
+          <div className="empty-state">
+            {planning ? (
+              <>
+                <div className="empty-state-emoji">🌅</div>
+                <div className="empty-state-text">Creating your day…</div>
+              </>
+            ) : planError ? (
+              <>
+                <div className="empty-state-emoji">⚠️</div>
+                <div className="empty-state-text">{planError}</div>
+                <button
+                  onClick={() => runPlanGeneration(childList)}
+                  style={{
+                    marginTop: 12, padding: '9px 20px', border: 'none', borderRadius: 22,
+                    background: '#C2855A', color: 'white', fontWeight: 600, fontSize: 13,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Try again
+                </button>
+              </>
+            ) : (
+              <div className="empty-state-text">Loading…</div>
+            )}
+          </div>
         </>
       )}
 
-      {/* Plan exists — render user-type-specific dashboard */}
       {plan && (
         <>
           <AlertPill reminders={upcomingReminders} />
@@ -101,8 +125,6 @@ export default function Dashboard() {
             plan={plan}
             profileData={profileData}
             childList={childList}
-            onPlanDay={handlePlanDay}
-            planning={planning}
             planDate={today}
             onPlanUpdate={(updatedPlanData) => setPlan(prev => ({ ...prev, plan_data: updatedPlanData }))}
           />
