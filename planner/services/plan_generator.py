@@ -31,9 +31,9 @@ PROFESSIONAL_JSON = """{
     {"time": "14:00", "title": "Meeting name", "duration": "45 mins", "platform": "Zoom", "note": "Prepare slides"}
   ],
   "meals": {
-    "breakfast": {"name": "Meal name", "prep_mins": 10},
-    "lunch":     {"name": "Meal name", "prep_mins": 5},
-    "dinner":    {"name": "Meal name", "prep_mins": 25}
+    "breakfast": {"name": "Meal name", "prep_mins": 10, "ingredients": ["ingredient 1", "ingredient 2"]},
+    "lunch":     {"name": "Meal name", "prep_mins": 5, "ingredients": ["ingredient 1", "ingredient 2"]},
+    "dinner":    {"name": "Meal name", "prep_mins": 25, "ingredients": ["ingredient 1", "ingredient 2"]}
   },
   "exercise": {"activity": "Gym", "time": "18:00", "duration": "45 mins"},
   "end_of_day": "18:00",
@@ -44,9 +44,9 @@ PROFESSIONAL_JSON = """{
 HOMEMAKER_JSON = """{
   "user_type": "homemaker",
   "meals": {
-    "breakfast": {"name": "Meal name", "prep_mins": 20, "description": "Brief recipe"},
-    "lunch":     {"name": "Meal name", "prep_mins": 35, "description": "Brief recipe"},
-    "dinner":    {"name": "Meal name", "prep_mins": 40, "description": "Brief recipe"},
+    "breakfast": {"name": "Meal name", "prep_mins": 20, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},
+    "lunch":     {"name": "Meal name", "prep_mins": 35, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},
+    "dinner":    {"name": "Meal name", "prep_mins": 40, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},
     "snacks":    ["Snack item 1", "Snack item 2"]
   },
   "class_alerts": [
@@ -78,9 +78,9 @@ WORKING_MOM_JSON = """{
     {"child": "Child name", "class": "Class name", "time": "17:00", "leave_by": "16:30"}
   ],
   "meals": {
-    "breakfast": {"name": "Meal name", "prep_mins": 10, "description": "Quick description"},
-    "lunch":     {"name": "Meal name", "prep_mins": 5, "description": "Packed or ordered"},
-    "dinner":    {"name": "Meal name", "prep_mins": 30, "description": "Quick description"},
+    "breakfast": {"name": "Meal name", "prep_mins": 10, "description": "Quick description", "ingredients": ["ingredient 1", "ingredient 2"]},
+    "lunch":     {"name": "Meal name", "prep_mins": 5, "description": "Packed or ordered", "ingredients": ["ingredient 1", "ingredient 2"]},
+    "dinner":    {"name": "Meal name", "prep_mins": 30, "description": "Quick description", "ingredients": ["ingredient 1", "ingredient 2"]},
     "snacks":    ["Snack 1", "Snack 2"]
   },
   "kids_activities": [
@@ -107,9 +107,9 @@ NEW_MOM_JSON = """{
   "morning_greeting": "1-2 sentence warm personalised greeting for the mom based on her situation",
   "meal_health_banner": "A warm one-line note about recovery nutrition — never about weight or aesthetics",
   "meals": {
-    "breakfast": {"name": "Meal name", "prep_mins": 5, "description": "One-hand friendly recipe"},
-    "lunch":     {"name": "Meal name", "prep_mins": 10, "description": "Quick and nutritious"},
-    "dinner":    {"name": "Meal name", "prep_mins": 20, "description": "Prep during nap time"},
+    "breakfast": {"name": "Meal name", "prep_mins": 5, "description": "One-hand friendly recipe", "ingredients": ["ingredient 1", "ingredient 2"]},
+    "lunch":     {"name": "Meal name", "prep_mins": 10, "description": "Quick and nutritious", "ingredients": ["ingredient 1", "ingredient 2"]},
+    "dinner":    {"name": "Meal name", "prep_mins": 20, "description": "Prep during nap time", "ingredients": ["ingredient 1", "ingredient 2"]},
     "snacks":    ["Snack 1", "Snack 2", "Snack 3"]
   },
   "exercise": {"activity": "Activity name", "time": "10:00", "duration": "15 mins", "note": "Encouraging note about recovery"},
@@ -371,9 +371,9 @@ class PlanGenerator:
             '      "date": "YYYY-MM-DD",\n'
             '      "meal_health_banner": "Warm caring line about today\'s meals",\n'
             '      "meals": {\n'
-            '        "breakfast": {"name": "Dish name", "prep_mins": 15, "description": "Brief recipe"},\n'
-            '        "lunch": {"name": "Dish name", "prep_mins": 30, "description": "Brief recipe"},\n'
-            '        "dinner": {"name": "Dish name", "prep_mins": 30, "description": "Brief recipe"},\n'
+            '        "breakfast": {"name": "Dish name", "prep_mins": 15, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},\n'
+            '        "lunch": {"name": "Dish name", "prep_mins": 30, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},\n'
+            '        "dinner": {"name": "Dish name", "prep_mins": 30, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},\n'
             '        "snacks": ["Snack 1", "Snack 2"]\n'
             "      }\n"
             "    }\n"
