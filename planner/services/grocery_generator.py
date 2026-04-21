@@ -241,17 +241,24 @@ class GroceryGenerator:
         family = profile.family_size or 1
         freq = profile.grocery_frequency or 'weekly'
 
-        # Format planned meals — grouped by day, compact
+        # Format planned meals — grouped by day with ingredients when known.
+        # Passing ingredients is critical: without them Gemini guesses from the
+        # dish name alone and under-reports (just produce), missing the grains,
+        # proteins, dairy, and spices the meals actually need.
         meals_text = "\n## Planned Dishes\n"
         if existing_meals['meals']:
             days_grouped = {}
             for m in existing_meals['meals']:
                 day = m['day']
-                if day not in days_grouped:
-                    days_grouped[day] = []
-                days_grouped[day].append(m['name'])
-            for day, names in days_grouped.items():
-                meals_text += f"- {day}: {', '.join(names)}\n"
+                days_grouped.setdefault(day, []).append(m)
+            for day, meals in days_grouped.items():
+                meals_text += f"- {day}:\n"
+                for m in meals:
+                    ing = m.get('ingredients') or []
+                    if ing:
+                        meals_text += f"    - {m['name']}: {', '.join(str(i) for i in ing)}\n"
+                    else:
+                        meals_text += f"    - {m['name']}\n"
         else:
             meals_text += "No meals planned yet.\n"
 
@@ -269,21 +276,17 @@ class GroceryGenerator:
             f"{meals_text}"
             f"{pantry_text}\n"
             "Rules:\n"
-            "- Extract ingredients from EVERY planned meal listed above\n"
-            "- Consolidate duplicate ingredients across ALL meals (e.g. onion in 8 meals → total kg needed)\n"
+            "- Extract EVERY ingredient from EVERY planned meal listed above. Do not skip any.\n"
+            "- Consolidate duplicate ingredients across meals (onion appearing in 8 meals → one entry with total kg)\n"
             f"- Scale ALL quantities for {family} people\n"
             "- Use realistic local quantities: kg, g, litres, packets, pieces — NOT cups or tablespoons\n"
             "- Categorise every item: produce, dairy, grains, protein, spices, snacks, other\n"
-            "- Include cooking essentials needed for the meals (oil for frying, etc.) unless in pantry\n"
+            "- Include cooking essentials needed for the meals (oil, ghee, salt) unless in pantry\n"
             "- Do NOT include pantry items listed above\n"
-            "- Keep the list practical — what she'd actually put in her cart\n"
-            "- STRICTLY 20-25 items total. Count them.\n"
-            "- Group: vegetables (except onion/tomato/potato) into 'Mixed Vegetables' BUT list what's included in parentheses\n"
-            "  e.g. name: 'Mixed Vegetables (carrot, capsicum, beans, spinach)' — so the user knows exactly what to buy\n"
-            "- Same for herbs: 'Fresh Herbs (coriander, mint, curry leaves)'\n"
-            "- IMPORTANT: every ingredient from every meal must appear somewhere in the list — either as its own item or named inside a group\n"
-            "- Keep separate: onion, tomato, potato, each protein (chicken, fish, meat, eggs), each grain (rice, lentils, bulgur), each dairy (yogurt, cheese, butter)\n"
-            "- Consolidate duplicates\n"
+            "- Minimum 15 items, ideally 20-25. DO NOT under-return — err on the side of more items, never fewer.\n"
+            "- Your list MUST contain items from EACH of these categories (unless the meals genuinely don't need them): produce, grains (rice/flour/lentils), proteins (meat/fish/eggs/pulses), dairy (milk/curd/cheese), spices, cooking oils.\n"
+            "- List each vegetable SEPARATELY (onion, tomato, potato, carrot, cabbage, etc.) — do NOT merge them into a single 'Mixed Vegetables' entry.\n"
+            "- Keep separate: each protein (chicken, fish, meat, eggs), each grain (rice, lentils, bulgur), each dairy (yogurt, cheese, butter), each spice.\n"
             "- Short names: 1-3 words max per item\n"
             "- Short quantities: '2 kg', '500 g', '1 L', '6 pcs', '2 pkt'\n\n"
             "Return ONLY valid JSON array, each item on one line:\n"
