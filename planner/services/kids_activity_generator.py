@@ -101,7 +101,7 @@ class KidsActivityGenerator:
             model='gemini-2.5-flash',
             google_api_key=settings.GEMINI_API_KEY,
             temperature=0.7,
-            max_output_tokens=16384,
+            max_output_tokens=8192,
             transport='rest',
         )
 
