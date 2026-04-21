@@ -1727,13 +1727,7 @@ class OnboardingChatView(APIView):
 # Kids Activities
 # -------------------------------------------------------------------
 class GenerateKidsActivitiesView(APIView):
-    """POST /api/v1/kids-activities/generate/ — generate (or retry) this week's plan.
-
-    Also serves as a manual retry from the dashboard when a previous
-    generation failed and left no usable plan. If an existing plan for the
-    week has zero days (failed generation left an empty shell), it's cleared
-    and regenerated. A healthy plan is left alone.
-    """
+    """POST /api/v1/kids-activities/generate/ — generate (or retry) today's pack."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -1745,23 +1739,19 @@ class GenerateKidsActivitiesView(APIView):
             )
 
         today = date.today()
-        week_start = today - timedelta(days=today.weekday())
 
         existing = KidsActivityPlan.objects.filter(
-            profile=profile, week_start_date=week_start,
+            profile=profile, week_start_date=today,
         ).first()
-        if existing:
-            if existing.days.exists():
-                return Response(
-                    {'error': 'Activities already generated for this week.'},
-                    status=status.HTTP_409_CONFLICT,
-                )
-            # Empty shell from a failed generation — wipe and retry.
-            existing.delete()
+        if existing and existing.days.exists():
+            return Response(
+                {'error': 'Activities already generated for today.'},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         try:
             generator = KidsActivityGenerator()
-            plan = generator.generate_weekly_plan(profile, week_start)
+            plan = generator.generate_daily_plan(profile, today)
             serializer = KidsActivityPlanSerializer(plan)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         except Exception as e:
@@ -1773,41 +1763,24 @@ class GenerateKidsActivitiesView(APIView):
 
 
 class CurrentKidsActivitiesView(APIView):
-    """GET /api/v1/kids-activities/current/ — get current week's plan."""
+    """GET /api/v1/kids-activities/current/ — get today's pack (auto-generate if missing)."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         profile = request.user.profile
         today = date.today()
-        week_start = today - timedelta(days=today.weekday())
 
         plan = KidsActivityPlan.objects.filter(
             profile=profile,
-            week_start_date=week_start,
+            week_start_date=today,
         ).first()
 
         has_children = profile.children.exists()
 
-        # Auto-regenerate per child if all their days are completed
-        if plan and has_children:
-            for child in profile.children.all():
-                child_days = plan.days.filter(child=child)
-                total = child_days.count()
-                done = child_days.filter(
-                    Q(is_read=True) | Q(is_downloaded=True)
-                ).count()
-                if total > 0 and done >= total:
-                    try:
-                        generator = KidsActivityGenerator()
-                        generator.regenerate_for_child(plan, child)
-                    except Exception as e:
-                        logger.error(f'Per-child kids activities regen failed for {child.name}: {e}')
-
-        # Auto-generate if user has children but no plan
         if not plan and has_children:
             try:
                 generator = KidsActivityGenerator()
-                plan = generator.generate_weekly_plan(profile, week_start)
+                plan = generator.generate_daily_plan(profile, today)
             except Exception as e:
                 logger.error(f'On-demand kids activities generation failed: {e}')
                 return Response({'plan': None, 'has_children': has_children})

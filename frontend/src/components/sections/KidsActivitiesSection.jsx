@@ -67,15 +67,6 @@ export default function KidsActivitiesSection() {
     if (!res.error) {
       setPlan(res);
       setOpenSection(null);
-
-      // Check if all days are now done — if so, refetch to trigger auto-regeneration
-      const allChildrenDone = (res.children_progress || []).every(
-        (c) => c.completed_days >= c.total_days
-      );
-      if (allChildrenDone) {
-        setLoading(true);
-        await fetchCurrent();
-      }
     }
     setMarkingRead(null);
   };
@@ -121,7 +112,7 @@ export default function KidsActivitiesSection() {
             Activities aren't ready yet
           </div>
           <div style={{ fontSize: 12, color: '#888', marginBottom: 12, lineHeight: 1.4 }}>
-            We couldn't put this week's activities together. Give it another try.
+            We couldn't put today's activities together. Give it another try.
           </div>
           <button
             onClick={handleRetry}
@@ -148,17 +139,15 @@ export default function KidsActivitiesSection() {
   const currentChildId = childIds[selectedChild] || childIds[0];
   const progress = children_progress[selectedChild] || children_progress[0];
 
-  const childDays = days
-    .filter((d) => d.child === currentChildId)
-    .sort((a, b) => a.day_of_week - b.day_of_week);
-
-  const activeDay = childDays.find((d) => d.unlocked && !d.is_read && !d.is_downloaded);
+  const childDays = days.filter((d) => d.child === currentChildId);
+  // Only one day per plan now (today's pack). Show it if not yet completed.
+  const activeDay = childDays.find((d) => !d.is_read && !d.is_downloaded) || childDays[0];
 
   const toggle = (section) => setOpenSection(openSection === section ? null : section);
 
-  const activities = activeDay?.worksheet_content?.activities || [];
+  const activities = (activeDay?.worksheet_content?.activities || []).slice(0, 2);
   const storyGradient = activeDay
-    ? STORY_GRADIENTS[(activeDay.day_of_week + activeDay.child) % STORY_GRADIENTS.length]
+    ? STORY_GRADIENTS[activeDay.child % STORY_GRADIENTS.length]
     : STORY_GRADIENTS[0];
 
   return (
@@ -181,7 +170,7 @@ export default function KidsActivitiesSection() {
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a1a' }}>{theme}</div>
               <div style={{ fontSize: 10, color: '#888' }}>
-                This week's theme
+                Today's theme · 2 activities
                 {childIds.length === 1 && ` · ${childNames[0]}`}
               </div>
             </div>
@@ -270,7 +259,7 @@ export default function KidsActivitiesSection() {
             <div style={{ padding: '12px 16px 6px' }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
                 <div style={{ flex: 1, fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Today's activities
+                  2 activities today
                 </div>
                 <a
                   href={kidsActivities.downloadUrl(activeDay.id)}
