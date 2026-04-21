@@ -1732,9 +1732,10 @@ class GenerateKidsActivitiesView(APIView):
 
     def post(self, request):
         profile = request.user.profile
-        if not profile.children.exists():
+        # Only children 3+ can use activities.
+        if not any(c.age >= 3 for c in profile.children.all()):
             return Response(
-                {'error': 'Add children to your profile before generating activities.'},
+                {'error': 'Activities are for children aged 3 and up.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1775,7 +1776,8 @@ class CurrentKidsActivitiesView(APIView):
             week_start_date=today,
         ).first()
 
-        has_children = profile.children.exists()
+        # Only children 3+ can use activities — under-3s are ignored here.
+        has_children = any(c.age >= 3 for c in profile.children.all())
 
         if not plan and has_children:
             try:

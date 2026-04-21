@@ -97,9 +97,10 @@ class KidsActivityGenerator:
             # Empty shell from a failed run — wipe and retry.
             existing.delete()
 
-        children = list(profile.children.all())
+        # Only children 3 and older get activities — infants/toddlers can't use them.
+        children = [c for c in profile.children.all() if c.age >= 3]
         if not children:
-            raise ValueError('No children found. Add children to your profile first.')
+            raise ValueError('No children aged 3+ found. Activities are for ages 3 and up.')
 
         user_message = self._build_prompt(children, target_date)
 
