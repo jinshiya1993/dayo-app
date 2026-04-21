@@ -64,6 +64,16 @@ class GroceryGenerator:
                 HumanMessage(content=user_message),
             ]
 
+            # Debug: how many meals made it into the prompt, and a preview.
+            meals_with_ingredients = sum(
+                1 for m in existing_meals['meals'] if m.get('ingredients')
+            )
+            logger.info(
+                f'Grocery prompt — {meals_with_ingredients}/{len(existing_meals["meals"])} '
+                f'meals have ingredients'
+            )
+            logger.info(f'Grocery user message (first 800 chars):\n{user_message[:800]}')
+
             # Try up to 2 times — retry on malformed JSON OR a suspiciously
             # short list (Gemini sometimes stops after a handful of items and
             # the JSON happens to be valid).
