@@ -64,18 +64,37 @@ class GroceryGenerator:
                 HumanMessage(content=user_message),
             ]
 
-            # Try up to 2 times in case of malformed JSON
+            # Try up to 2 times — retry on malformed JSON OR a suspiciously
+            # short list (Gemini sometimes stops after a handful of items and
+            # the JSON happens to be valid).
+            MIN_EXPECTED_ITEMS = 10
             parsed_items = None
             for attempt in range(2):
                 response = self.llm.invoke(messages)
                 raw_content = response.content.strip()
                 try:
-                    parsed_items = self._parse_response(raw_content)
-                    break
+                    candidate = self._parse_response(raw_content)
                 except json.JSONDecodeError as e:
                     logger.error(f'Grocery JSON parse attempt {attempt + 1} failed: {e}')
                     if attempt == 0:
-                        messages.append(HumanMessage(content="Your response was not valid JSON. Return ONLY a valid JSON array, nothing else."))
+                        messages.append(HumanMessage(
+                            content="Your response was not valid JSON. Return ONLY a valid JSON array, nothing else."
+                        ))
+                    continue
+
+                if attempt == 0 and len(candidate) < MIN_EXPECTED_ITEMS:
+                    logger.warning(
+                        f'Grocery list only had {len(candidate)} items — retrying for a more complete list'
+                    )
+                    messages.append(HumanMessage(content=(
+                        f"Your previous response only returned {len(candidate)} items. "
+                        f"The user has diverse weekly meals. Return a more complete list of 20-25 items "
+                        f"spanning produce, grains, proteins, dairy, and spices. Do not return only produce."
+                    )))
+                    continue
+
+                parsed_items = candidate
+                break
         except Exception as e:
             logger.error(f'Grocery AI call failed: {e}')
             return None
