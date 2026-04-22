@@ -65,14 +65,15 @@ class GroceryGenerator:
             ]
 
             # Debug: how many meals made it into the prompt, and a preview.
+            # Using warning level so Render's default log config shows them.
             meals_with_ingredients = sum(
                 1 for m in existing_meals['meals'] if m.get('ingredients')
             )
-            logger.info(
+            logger.warning(
                 f'Grocery prompt — {meals_with_ingredients}/{len(existing_meals["meals"])} '
                 f'meals have ingredients'
             )
-            logger.info(f'Grocery user message (first 800 chars):\n{user_message[:800]}')
+            logger.warning(f'Grocery user message (first 1200 chars):\n{user_message[:1200]}')
 
             # Try up to 2 times — retry on malformed JSON OR a suspiciously
             # short list (Gemini sometimes stops after a handful of items and
