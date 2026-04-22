@@ -15,3 +15,9 @@ python manage.py collectstatic --no-input
 
 # Run migrations
 python manage.py migrate
+
+# Create admin superuser from env vars (idempotent — fails silently if already exists).
+# Requires DJANGO_SUPERUSER_USERNAME, DJANGO_SUPERUSER_EMAIL, DJANGO_SUPERUSER_PASSWORD.
+if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && [ -n "$DJANGO_SUPERUSER_PASSWORD" ]; then
+  python manage.py createsuperuser --noinput || true
+fi
