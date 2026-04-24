@@ -6,9 +6,8 @@ import { profile as profileApi, sections as sectionsApi } from '../services/api'
 const USER_TYPE_CATEGORIES = {
   parent: ['essentials', 'kids', 'tasks', 'wellness', 'routine', 'other'],
   new_mom: ['essentials', 'baby', 'wellness', 'tasks', 'other'],
-  homemaker: ['essentials', 'tasks', 'wellness', 'other'],
+  homemaker: ['essentials', 'tasks', 'wellness', 'work', 'other'],
   working_mom: ['essentials', 'kids', 'tasks', 'wellness', 'work', 'routine', 'other'],
-  professional: ['essentials', 'work', 'wellness', 'tasks', 'other'],
 };
 
 export default function CustomiseDashboard() {
@@ -113,7 +112,7 @@ export default function CustomiseDashboard() {
 
   // Sections that are mutually exclusive — if one is active, hide the others
   const EXCLUSIVE_GROUPS = [
-    ['meal_cards', 'meal_compact', 'mom_meals'],
+    ['meal_cards', 'mom_meals'],
   ];
 
   // Filter available sections by user type

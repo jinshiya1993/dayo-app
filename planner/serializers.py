@@ -51,7 +51,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'grocery_day', 'exclusions', 'home_help_type',
             'baby_name', 'baby_date_of_birth', 'is_breastfeeding',
             'had_csection', 'support_type',
-            'location_city', 'notes', 'onboarding_complete',
+            'location_city', 'works_outside_home', 'notes', 'onboarding_complete',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']

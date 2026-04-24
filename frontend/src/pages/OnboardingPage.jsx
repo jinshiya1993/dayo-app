@@ -6,10 +6,9 @@ export default function OnboardingPage() {
   const navigate = useNavigate();
 
   const [displayName, setDisplayName] = useState('');
-  const [userType, setUserType] = useState('parent');
-  const [customUserType, setCustomUserType] = useState('');
+  const [worksOutsideHome, setWorksOutsideHome] = useState(null);
   const [city, setCity] = useState('');
-  const [wakeTime, setWakeTime] = useState('06:00');
+  const [wakeTime, setWakeTime] = useState('07:00');
   const [sleepTime, setSleepTime] = useState('22:00');
 
   useEffect(() => {
@@ -20,21 +19,26 @@ export default function OnboardingPage() {
       if (p.location_city) setCity(p.location_city);
       if (p.wake_time) setWakeTime(p.wake_time.slice(0, 5));
       if (p.sleep_time) setSleepTime(p.sleep_time.slice(0, 5));
+      if (typeof p.works_outside_home === 'boolean') {
+        setWorksOutsideHome(p.works_outside_home);
+      }
     });
   }, []);
 
   function handleNext() {
-    if (!displayName.trim()) return;
-    navigate('/onboarding/chat', {
+    if (!displayName.trim() || worksOutsideHome === null) return;
+    navigate('/onboarding/form', {
       state: {
         name: displayName.trim(),
-        userType: userType === 'other' ? (customUserType.trim() || 'other') : userType,
+        worksOutsideHome,
         city,
         wakeTime,
         sleepTime,
       },
     });
   }
+
+  const canProceed = displayName.trim() && worksOutsideHome !== null;
 
   return (
     <div className="app-shell" style={{ padding: '0 16px' }}>
@@ -45,7 +49,7 @@ export default function OnboardingPage() {
 
       <div>
         <h2 style={h2Style}>About you</h2>
-        <p style={subStyle}>Tell us a bit about yourself</p>
+        <p style={subStyle}>A few basics and we're off</p>
 
         <label style={labelStyle}>Your name</label>
         <input
@@ -55,29 +59,34 @@ export default function OnboardingPage() {
           style={{ ...inputStyle, background: '#FAF7F5', color: '#555', cursor: 'default' }}
         />
 
-        <label style={labelStyle}>I am a...</label>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+        <label style={labelStyle}>Do you work outside the home?</label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
           {[
-            { key: 'parent', label: 'Mom with Kids', emoji: '👩‍👧‍👦' },
-            { key: 'new_mom', label: 'New Mom', emoji: '👶' },
-            { key: 'working_mom', label: 'Working Mom', emoji: '👩‍💻' },
-            { key: 'homemaker', label: 'Homemaker', emoji: '🏡' },
-            { key: 'professional', label: 'Professional', emoji: '💼' },
-            { key: 'other', label: 'Other', emoji: '✨' },
-          ].map((opt) => (
-            <button key={opt.key} onClick={() => { setUserType(opt.key); if (opt.key !== 'other') setCustomUserType(''); }}
-              style={{ padding: '14px 12px', borderRadius: 12, border: '0.5px solid', borderColor: userType === opt.key ? '#C2855A' : '#EDE8E3', background: userType === opt.key ? '#FFF8F0' : 'white', cursor: 'pointer', textAlign: 'center' }}>
-              <div style={{ fontSize: 24 }}>{opt.emoji}</div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{opt.label}</div>
-            </button>
-          ))}
+            { value: true, label: 'Yes', emoji: '💼', hint: 'Office, shifts or commute' },
+            { value: false, label: 'No', emoji: '🏡', hint: 'At home or remote all day' },
+          ].map((opt) => {
+            const on = worksOutsideHome === opt.value;
+            return (
+              <button
+                key={String(opt.value)}
+                onClick={() => setWorksOutsideHome(opt.value)}
+                style={{
+                  padding: '14px 12px',
+                  borderRadius: 12,
+                  border: '0.5px solid',
+                  borderColor: on ? '#C2855A' : '#EDE8E3',
+                  background: on ? '#FFF8F0' : 'white',
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                }}
+              >
+                <div style={{ fontSize: 26 }}>{opt.emoji}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, marginTop: 4 }}>{opt.label}</div>
+                <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{opt.hint}</div>
+              </button>
+            );
+          })}
         </div>
-        {userType === 'other' && (
-          <>
-            <label style={labelStyle}>Tell us what you do</label>
-            <input className="auth-input" value={customUserType} onChange={(e) => setCustomUserType(e.target.value)} placeholder="e.g. Freelancer, Retiree, Caregiver" style={inputStyle} />
-          </>
-        )}
 
         <label style={labelStyle}>City</label>
         <input className="auth-input" value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Kochi" style={inputStyle} />
@@ -89,7 +98,7 @@ export default function OnboardingPage() {
       </div>
 
       <div style={{ paddingBottom: 32, marginTop: 20 }}>
-        <button onClick={handleNext} className="auth-btn" style={{ width: '100%', background: '#C2855A' }} disabled={!displayName.trim()}>
+        <button onClick={handleNext} className="auth-btn" style={{ width: '100%', background: '#C2855A' }} disabled={!canProceed}>
           Next
         </button>
       </div>

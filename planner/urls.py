@@ -82,6 +82,7 @@ urlpatterns = [
     # Onboarding Agent
     path('onboarding/start/', views.OnboardingStartView.as_view(), name='onboarding-start'),
     path('onboarding/chat/', views.OnboardingChatView.as_view(), name='onboarding-chat'),
+    path('onboarding/complete/', views.OnboardingCompleteView.as_view(), name='onboarding-complete'),
 
     # Reminders
     path('reminders/', views.ReminderListView.as_view(), name='reminder-list'),

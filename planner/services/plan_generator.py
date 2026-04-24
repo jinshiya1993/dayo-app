@@ -14,33 +14,6 @@ logger = logging.getLogger(__name__)
 
 # ─── User-type-specific JSON templates for the AI ─────────────────
 
-PROFESSIONAL_JSON = """{
-  "user_type": "professional",
-  "deep_work": {
-    "title": "Main focus task for today",
-    "start": "09:00",
-    "end": "12:00",
-    "description": "What to focus on"
-  },
-  "priorities": [
-    {"number": 1, "title": "Task name", "notes": "Brief note", "urgency": "today", "done": false},
-    {"number": 2, "title": "Task name", "notes": "Brief note", "urgency": "this-week", "done": false},
-    {"number": 3, "title": "Task name", "notes": "Brief note", "urgency": "someday", "done": false}
-  ],
-  "meetings": [
-    {"time": "14:00", "title": "Meeting name", "duration": "45 mins", "platform": "Zoom", "note": "Prepare slides"}
-  ],
-  "meals": {
-    "breakfast": {"name": "Meal name", "prep_mins": 10, "ingredients": ["ingredient 1", "ingredient 2"]},
-    "lunch":     {"name": "Meal name", "prep_mins": 5, "ingredients": ["ingredient 1", "ingredient 2"]},
-    "dinner":    {"name": "Meal name", "prep_mins": 25, "ingredients": ["ingredient 1", "ingredient 2"]}
-  },
-  "exercise": {"activity": "Gym", "time": "18:00", "duration": "45 mins"},
-  "end_of_day": "18:00",
-  "notes": "Any important note for today",
-  "quick_chips": ["Specific action chip 1", "Specific action chip 2", "Specific action chip 3"]
-}"""
-
 HOMEMAKER_JSON = """{
   "user_type": "homemaker",
   "meals": {
@@ -128,7 +101,6 @@ NEW_MOM_JSON = """{
 }"""
 
 JSON_TEMPLATES = {
-    'professional': PROFESSIONAL_JSON,
     'working_mom': WORKING_MOM_JSON,
     'new_mom': NEW_MOM_JSON,
     'parent': HOMEMAKER_JSON,

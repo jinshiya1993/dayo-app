@@ -97,10 +97,13 @@ class KidsActivityGenerator:
             # Empty shell from a failed run — wipe and retry.
             existing.delete()
 
-        # Only children 3 and older get activities — infants/toddlers can't use them.
-        children = [c for c in profile.children.all() if c.age >= 3]
+        # Ages 2-12 get a pack. Age 2 gets a story only (no worksheet
+        # activities — motor skills aren't there yet); age 3-12 gets
+        # story + 2 activities. Teens (13+) manage their own time and
+        # don't need a daily activity pack.
+        children = [c for c in profile.children.all() if 2 <= c.age < 13]
         if not children:
-            raise ValueError('No children aged 3+ found. Activities are for ages 3 and up.')
+            raise ValueError('No children aged 2-12 found. Activities are for ages 2 through 12.')
 
         user_message = self._build_prompt(children, target_date)
 
@@ -148,7 +151,9 @@ class KidsActivityGenerator:
                 )
                 continue
 
-            activities = child_data.get('activities', [])[:2]
+            # Age 2 band is story-only — drop any activities the model
+            # returned. The frontend hides the activities row when empty.
+            activities = [] if child.age < 3 else child_data.get('activities', [])[:2]
 
             KidsActivityDay.objects.create(
                 plan=plan,
@@ -158,7 +163,7 @@ class KidsActivityGenerator:
                 story_text=child_data.get('story_text', ''),
                 story_emoji=child_data.get('story_emoji', '📖'),
                 story_illustration=child_data.get('story_illustration', ''),
-                worksheet_topic=child_data.get('activity_title', 'Activity Sheet'),
+                worksheet_topic=child_data.get('activity_title', '') if child.age >= 3 else '',
                 worksheet_content={'activities': activities},
                 coloring_description='',
                 unlocked=True,
@@ -168,11 +173,20 @@ class KidsActivityGenerator:
 
     def _build_prompt(self, children, target_date):
         children_info = []
+        has_toddler = False
+        has_older = False
         for child in children:
             interests = ', '.join(child.interests) if child.interests else 'general'
-            children_info.append(
-                f"- {child.name}: age {child.age}, interests: {interests}"
-            )
+            if child.age < 3:
+                has_toddler = True
+                children_info.append(
+                    f"- {child.name}: age {child.age} (TODDLER — STORY ONLY, no activities)"
+                )
+            else:
+                has_older = True
+                children_info.append(
+                    f"- {child.name}: age {child.age}, interests: {interests}"
+                )
         children_block = '\n'.join(children_info)
 
         diff_reminder = ''
@@ -180,14 +194,29 @@ class KidsActivityGenerator:
             diff_reminder = (
                 "\nREMINDER: Multiple children with different ages. Each MUST get:\n"
                 "- A DIFFERENT story (different characters, plot, complexity)\n"
-                "- DIFFERENT activity types from siblings\n"
+                "- DIFFERENT activity types from siblings (where activities apply)\n"
                 "- Age-appropriate difficulty\n"
             )
 
+        toddler_rule = ''
+        if has_toddler:
+            toddler_rule = (
+                "\nTODDLER RULE: For any child marked TODDLER, return an empty "
+                '"activities": [] array. Write a short, simple, sensory-rich '
+                "story (3-5 sentences, repetition, easy words). No worksheet "
+                "activities — motor skills aren't ready.\n"
+            )
+
+        activity_instruction = (
+            "For each NON-TODDLER child: one story + exactly 2 age-appropriate activities."
+            if has_older
+            else "Each child gets a short sensory story — no activities."
+        )
+
         return (
             f"Generate today's activity pack for {target_date.strftime('%A, %B %d, %Y')}.\n\n"
-            f"Children:\n{children_block}\n{diff_reminder}\n"
-            f"Pick a fun theme. For EACH child: one story + exactly 2 age-appropriate activities.\n\n"
+            f"Children:\n{children_block}\n{diff_reminder}{toddler_rule}\n"
+            f"Pick a fun theme. {activity_instruction}\n\n"
             f"Return this exact JSON structure:\n"
             f'{{\n'
             f'  "theme": "Theme Name",\n'
@@ -198,7 +227,7 @@ class KidsActivityGenerator:
             f'      "story_emoji": "🐰",\n'
             f'      "story_illustration": "Vivid scene description...",\n'
             f'      "story_text": "Full story text...",\n'
-            f'      "activity_title": "Title for the activity sheet",\n'
+            f'      "activity_title": "Title for the activity sheet (omit for toddlers)",\n'
             f'      "activities": [\n'
             f'        {{"type": "drawing", "title": "...", "data": {{"prompt": "..."}}}},\n'
             f'        {{"type": "maze", "title": "...", "data": {{"start_label": "...", "end_label": "..."}}}}\n'
@@ -206,7 +235,7 @@ class KidsActivityGenerator:
             f'    }}\n'
             f'  ]\n'
             f'}}\n\n'
-            f"Include one entry per child ({len(children)} total). Exactly 2 activities each.\n"
+            f"Include one entry per child ({len(children)} total).\n"
             f"Return ONLY the JSON object."
         )
 

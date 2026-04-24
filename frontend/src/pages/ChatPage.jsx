@@ -29,15 +29,6 @@ function getDefaultChips(profileData, childList) {
     ];
   }
 
-  if (userType === 'professional') {
-    return [
-      "What should I cook tonight?",
-      "Reschedule my afternoon",
-      "Quick lunch idea",
-      "Healthy snack options",
-    ];
-  }
-
   // Default — parent, homemaker, working_mom
   return [
     "What should I cook tonight?",

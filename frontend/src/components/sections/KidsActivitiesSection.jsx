@@ -255,72 +255,74 @@ export default function KidsActivitiesSection() {
               </div>
             )}
 
-            {/* ── Activities section ── */}
-            <div style={{ padding: '12px 16px 6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-                <div style={{ flex: 1, fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  2 activities today
+            {/* ── Activities section ── hidden for age-2 story-only packs */}
+            {activities.length > 0 && (
+              <div style={{ padding: '12px 16px 6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ flex: 1, fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    {activities.length === 1 ? '1 activity today' : `${activities.length} activities today`}
+                  </div>
+                  <a
+                    href={kidsActivities.downloadUrl(activeDay.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontSize: 20, textDecoration: 'none', lineHeight: 1,
+                      cursor: 'pointer',
+                    }}
+                    title="Download PDF"
+                  >
+                    📥
+                  </a>
                 </div>
-                <a
-                  href={kidsActivities.downloadUrl(activeDay.id)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    fontSize: 20, textDecoration: 'none', lineHeight: 1,
-                    cursor: 'pointer',
-                  }}
-                  title="Download PDF"
-                >
-                  📥
-                </a>
-              </div>
 
-              {/* Activity chips row */}
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                {/* Activity chips row */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                  {activities.map((act, i) => {
+                    const icon = ACTIVITY_ICONS[act.type] || '🎯';
+                    const isOpen = openSection === `activity_${i}`;
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => toggle(`activity_${i}`)}
+                        style={{
+                          flex: 1, display: 'flex', flexDirection: 'column',
+                          alignItems: 'center', gap: 4,
+                          padding: '10px 6px', borderRadius: 12,
+                          border: isOpen ? '1.5px solid #C2855A' : '1px solid #EDE8E3',
+                          background: isOpen ? '#FFF8F0' : 'white',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <span style={{ fontSize: 22 }}>{icon}</span>
+                        <span style={{
+                          fontSize: 10, fontWeight: 600, lineHeight: 1.2,
+                          color: isOpen ? '#C2855A' : '#666',
+                          overflow: 'hidden', textOverflow: 'ellipsis',
+                          display: '-webkit-box', WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical', textAlign: 'center',
+                        }}>
+                          {act.title}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Expanded activity detail */}
                 {activities.map((act, i) => {
-                  const icon = ACTIVITY_ICONS[act.type] || '🎯';
-                  const isOpen = openSection === `activity_${i}`;
+                  if (openSection !== `activity_${i}`) return null;
                   return (
-                    <button
-                      key={i}
-                      onClick={() => toggle(`activity_${i}`)}
-                      style={{
-                        flex: 1, display: 'flex', flexDirection: 'column',
-                        alignItems: 'center', gap: 4,
-                        padding: '10px 6px', borderRadius: 12,
-                        border: isOpen ? '1.5px solid #C2855A' : '1px solid #EDE8E3',
-                        background: isOpen ? '#FFF8F0' : 'white',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <span style={{ fontSize: 22 }}>{icon}</span>
-                      <span style={{
-                        fontSize: 10, fontWeight: 600, lineHeight: 1.2,
-                        color: isOpen ? '#C2855A' : '#666',
-                        overflow: 'hidden', textOverflow: 'ellipsis',
-                        display: '-webkit-box', WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical', textAlign: 'center',
-                      }}>
-                        {act.title}
-                      </span>
-                    </button>
+                    <div key={i} style={{
+                      padding: '10px 12px', background: '#F8F6F4', borderRadius: 10,
+                      marginBottom: 8,
+                    }}>
+                      <ActivityPreview activity={act} />
+                    </div>
                   );
                 })}
               </div>
-
-              {/* Expanded activity detail */}
-              {activities.map((act, i) => {
-                if (openSection !== `activity_${i}`) return null;
-                return (
-                  <div key={i} style={{
-                    padding: '10px 12px', background: '#F8F6F4', borderRadius: 10,
-                    marginBottom: 8,
-                  }}>
-                    <ActivityPreview activity={act} />
-                  </div>
-                );
-              })}
-            </div>
+            )}
 
             {/* ── Done button ── */}
             <div style={{ padding: '6px 16px 14px' }}>

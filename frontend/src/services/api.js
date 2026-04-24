@@ -167,6 +167,11 @@ export const reminders = {
   dismiss: (id) => request(`/reminders/${id}/dismiss/`, { method: 'PATCH' }),
 };
 
+// Onboarding (form-based)
+export const onboarding = {
+  complete: (profileData) => request('/onboarding/complete/', { method: 'POST', body: JSON.stringify(profileData) }),
+};
+
 // Kids Activities
 export const kidsActivities = {
   current: () => request('/kids-activities/current/'),

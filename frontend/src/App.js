@@ -9,6 +9,7 @@ import ProfilePage from './pages/ProfilePage';
 import AuthPage from './pages/AuthPage';
 import OnboardingPage from './pages/OnboardingPage';
 import OnboardingChat from './pages/OnboardingChat';
+import OnboardingForm from './pages/OnboardingForm';
 import OnboardingPreview from './pages/OnboardingPreview';
 import CustomiseDashboard from './pages/CustomiseDashboard';
 import { profile } from './services/api';
@@ -70,6 +71,7 @@ function App() {
       <Routes>
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/onboarding/chat" element={<OnboardingChat />} />
+        <Route path="/onboarding/form" element={<OnboardingForm />} />
         <Route path="/onboarding/preview" element={<OnboardingPreview />} />
         <Route path="*" element={<Navigate to="/onboarding" replace />} />
       </Routes>

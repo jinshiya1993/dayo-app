@@ -14,7 +14,6 @@ class UserProfile(models.Model):
         PARENT = 'parent', 'Homemaker with Kids'
         NEW_MOM = 'new_mom', 'New Mom (Infant)'
         WORKING_MOM = 'working_mom', 'Working Mom'
-        PROFESSIONAL = 'professional', 'Professional'
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -147,6 +146,10 @@ class UserProfile(models.Model):
     )
 
     location_city = models.CharField(max_length=100, blank=True)
+    # Primary life-situation flag. Drives work-related dashboard sections
+    # (priorities / evening_routine). All other personalisation is
+    # derived from children ages in Child rows.
+    works_outside_home = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
     onboarding_complete = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -60,10 +60,7 @@ class AIContextAssembler:
         if self.profile.user_type == 'new_mom':
             sections.append(self._new_mom_section())
 
-        if self.profile.user_type == 'student':
-            sections.append(self._academic_section(target_date))
-
-        if self.profile.user_type == 'professional':
+        if self.profile.works_outside_home:
             sections.append(self._work_section(target_date))
 
         fav_section = self._favourites_section()

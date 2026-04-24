@@ -1,15 +1,11 @@
 import GreetingSection from './sections/GreetingSection';
 import TodaysScheduleSection from './sections/TodaysScheduleSection';
 import MealCardsSection from './sections/MealCardsSection';
-import MealCompactSection from './sections/MealCompactSection';
 import GrocerySection from './sections/GrocerySection';
 import KidsActivitiesSection from './sections/KidsActivitiesSection';
 import HouseworkSection from './sections/HouseworkSection';
 import MeTimeSection from './sections/MeTimeSection';
-import DeepWorkSection from './sections/DeepWorkSection';
 import PrioritiesSection from './sections/PrioritiesSection';
-import MeetingsSection from './sections/MeetingsSection';
-import EndOfDaySection from './sections/EndOfDaySection';
 import ExerciseSection from './sections/ExerciseSection';
 import EveningRoutineSection from './sections/EveningRoutineSection';
 import ErrandsSection from './sections/ErrandsSection';
@@ -28,16 +24,12 @@ const SECTIONS = {
   greeting:           { component: GreetingSection, dataKey: null },
   // schedule_alert / class_alert rendered outside layout loop — see below
   meal_cards:         { component: MealCardsSection, dataKey: 'meals' },
-  meal_compact:       { component: MealCompactSection, dataKey: 'meals' },
   mom_meals:          { component: MealCardsSection, dataKey: 'mom_meals' },
   grocery:            { component: GrocerySection, dataKey: null },
   kids_activities:    { component: KidsActivitiesSection, dataKey: null },
   housework:          { component: HouseworkSection, dataKey: null },
   me_time:            { component: MeTimeSection, dataKey: 'selfcare' },
-  deep_work:          { component: DeepWorkSection, dataKey: 'deep_work' },
   priorities:         { component: PrioritiesSection, dataKey: 'priorities' },
-  meetings:           { component: MeetingsSection, dataKey: 'meetings' },
-  end_of_day:         { component: EndOfDaySection, dataKey: 'end_of_day' },
   exercise:           { component: ExerciseSection, dataKey: 'exercise' },
   evening_routine:    { component: EveningRoutineSection, dataKey: 'evening_routine' },
   errands:            { component: ErrandsSection, dataKey: 'errands' },
@@ -58,7 +50,6 @@ const FALLBACK_LAYOUTS = {
   new_mom:      ['greeting', 'schedule_alert', 'meal_cards', 'essentials', 'grocery', 'exercise', 'selfcare_list', 'housework', 'me_time', 'notes', 'quick_chips'],
   homemaker:    ['greeting', 'schedule_alert', 'meal_cards', 'grocery', 'housework', 'me_time', 'notes', 'quick_chips'],
   working_mom:  ['greeting', 'schedule_alert', 'meal_cards', 'grocery', 'priorities', 'kids_activities', 'evening_routine', 'me_time', 'notes', 'quick_chips'],
-  professional: ['greeting', 'schedule_alert', 'deep_work', 'priorities', 'meetings', 'meal_compact', 'grocery', 'exercise', 'end_of_day', 'notes', 'quick_chips'],
 };
 
 // ─── Build layout from 3 layers ──────────────────────────────────
@@ -99,12 +90,12 @@ function getQuickChips(planData, childList, layout) {
   if (has('schedule_alert') || has('class_alert')) chips.push('Add an event');
   if (childList?.length > 0 && has('kids_activities')) chips.push(`${childList[0].name} is sick`);
 
-  if (has('meal_cards') || has('meal_compact') || has('mom_meals')) chips.push('Quick dinner idea');
+  if (has('meal_cards') || has('mom_meals')) chips.push('Quick dinner idea');
   if (has('exercise') || has('recovery_exercise')) chips.push('Skip workout today');
   if (has('selfcare_list') || has('me_time') || has('mom_rest')) chips.push('I need a break');
   if (has('grocery')) chips.push('Skip grocery');
   if (has('meetings')) chips.push('Reschedule meeting');
-  if (has('priorities') || has('deep_work')) chips.push('Add a task');
+  if (has('priorities')) chips.push('Add a task');
   if (has('baby_schedule')) chips.push('Feeding trouble');
 
   return [...new Set(chips)].slice(0, 3);
@@ -166,7 +157,7 @@ export default function DynamicDashboard({ plan, profileData, childList, planDat
         }
 
         // Meal sections need planData for banner + actions
-        if (sectionKey === 'meal_cards' || sectionKey === 'meal_compact' || sectionKey === 'mom_meals') {
+        if (sectionKey === 'meal_cards' || sectionKey === 'mom_meals') {
           const data = config.dataKey ? planData[config.dataKey] : null;
           return <Component key={sectionKey} data={data} planData={planData} planDate={planDate} onPlanUpdate={onPlanUpdate} />;
         }

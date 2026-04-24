@@ -215,8 +215,8 @@ export default function ProfilePage() {
           <select className="auth-input" value={form.user_type || 'parent'} onChange={(e) => setForm({ ...form, user_type: e.target.value })} style={{ marginBottom: 8 }}>
             <option value="homemaker">Homemaker</option>
             <option value="parent">Homemaker with Kids</option>
-            <option value="student">Student</option>
-            <option value="professional">Professional</option>
+            <option value="new_mom">New Mom</option>
+            <option value="working_mom">Working Mom</option>
           </select>
           <input className="auth-input" value={form.location_city || ''} onChange={(e) => setForm({ ...form, location_city: e.target.value })} placeholder="City" style={{ marginBottom: 8 }} />
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>

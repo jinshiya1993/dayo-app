@@ -143,9 +143,10 @@ class HouseworkGenerator:
         family = profile.family_size or 1
         is_weekend = weekday >= 5
 
-        # Determine how many AI tasks to add
+        # Determine how many AI tasks to add. Working users get a lighter
+        # weekday load — less home time, fewer chores on the plate.
         template_count = len(existing_task_names)
-        if profile.user_type in ('working_mom', 'professional'):
+        if profile.works_outside_home:
             target_total = 4 if not is_weekend else 6
         else:
             target_total = 6 if not is_weekend else 8

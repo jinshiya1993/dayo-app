@@ -179,8 +179,8 @@ class ChildViewSet(viewsets.ModelViewSet):
         serializer.save(parent=profile)
 
         # Make sure the kids_activities section is visible on the dashboard.
-        # Users on non-parent user types (homemaker, new_mom, professional) don't
-        # get it by default, so adding a child also adds the section.
+        # Users whose derived layout didn't include it (e.g. homemaker with
+        # no kids at onboarding) need it added when they add their first child.
         layout = list(profile.custom_layout or [])
         if not any(item.get('key') == 'kids_activities' for item in layout):
             layout.append({
@@ -826,6 +826,19 @@ class GroceryGenerateView(APIView):
 
     def post(self, request):
         profile = request.user.profile
+
+        # Idempotent retry: if there's already an active list, return it
+        # rather than kicking off a second Gemini call. Prevents double-mount
+        # / double-click from generating two lists in quick succession and
+        # wiping the first via the generator's "mark all open lists completed"
+        # step.
+        existing = GroceryList.objects.filter(
+            profile=profile, completed=False,
+        ).order_by('-generated_at').first()
+        if existing:
+            serializer = GroceryListSerializer(existing)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
         generator = GroceryGenerator()
         grocery_list = generator.generate_grocery_list(profile)
 
@@ -1562,7 +1575,6 @@ class OnboardingStartView(APIView):
             'new_mom': 'new_mom',
             'homemaker': 'homemaker',
             'working_mom': 'working_mom',
-            'professional': 'professional',
         }
         db_type = type_map.get(user_type, 'homemaker')
 
@@ -1581,6 +1593,145 @@ class OnboardingStartView(APIView):
             'is_complete': result.get('is_complete', False),
             'chips': result.get('chips', []),
         })
+
+
+def _derive_user_type(works_outside_home, children):
+    """Pick a legacy user_type label from the flags + children data.
+
+    Kept as a derived field on UserProfile so plan_generator's per-type
+    JSON schemas, admin filters, and analytics keep working without a
+    bigger refactor. Priority: baby takes precedence to preserve
+    postpartum meal/plan tailoring. The 'professional' type has been
+    retired — adults with no children fall under 'homemaker' regardless
+    of whether they work outside the home.
+    """
+    from datetime import date
+    today = date.today()
+
+    def months_old(child):
+        dob = child.date_of_birth
+        return (today.year - dob.year) * 12 + (today.month - dob.month)
+
+    has_infant = any(months_old(c) < 24 for c in children)
+    has_kid = any(2 <= c.age < 13 for c in children)
+
+    if has_infant:
+        return 'new_mom'
+    if has_kid and works_outside_home:
+        return 'working_mom'
+    if has_kid:
+        return 'parent'
+    return 'homemaker'
+
+
+def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_user_type=None):
+    """Persist onboarding profile_data to the DB.
+
+    Shared by the chat-based and form-based onboarding flows. The form
+    sends `works_outside_home`; the chat agent sends `user_type`. If only
+    user_type is present we infer works_outside_home from it so chat-flow
+    users don't lose their work-focused sections.
+    """
+    data = profile_data or {}
+    display_name = (data.get('display_name') or fallback_name or '').strip() or 'Friend'
+
+    profile, _ = UserProfile.objects.get_or_create(
+        user=user,
+        defaults={'display_name': display_name},
+    )
+
+    profile.display_name = display_name
+
+    explicit_user_type = data.get('user_type') or fallback_user_type
+    if 'works_outside_home' in data:
+        profile.works_outside_home = bool(data['works_outside_home'])
+    else:
+        profile.works_outside_home = explicit_user_type == 'working_mom'
+    profile.dietary_restrictions = data.get('dietary_restrictions', [])
+    profile.health_conditions = data.get('health_conditions', [])
+    profile.family_size = data.get('family_size', 1)
+    profile.cuisine_preferences = data.get('cuisine_preferences', [])
+    profile.breakfast_weight = data.get('breakfast_weight', 'light')
+    profile.breakfast_types = data.get('breakfast_types', [])
+    profile.lunch_weight = data.get('lunch_weight', 'heavy')
+    profile.lunch_types = data.get('lunch_types', [])
+    profile.dinner_weight = data.get('dinner_weight', 'light')
+    profile.dinner_types = data.get('dinner_types', [])
+    profile.snack_preferences = data.get('snack_preferences', [])
+    profile.planning_modules = data.get('planning_modules', [])
+    profile.grocery_day = data.get('grocery_day', 'Saturday')
+    profile.exclusions = data.get('exclusions', [])
+    profile.notes = data.get('notes', '')
+    profile.module_preferences = data.get('module_preferences', {})
+    # user_type / custom_layout are derived AFTER children are created,
+    # because both depend on the children's age bands.
+    profile.save()
+
+    # Children. Missing age → skip (we can't plan without it). Missing name
+    # but known age → save as "Child N" placeholder; user can rename later.
+    for idx, child_data in enumerate(data.get('children', []), start=1):
+        name = (child_data.get('name') or '').strip()
+        age = child_data.get('age', 0)
+        age_months = child_data.get('age_months', 0)
+
+        if not age and not age_months:
+            continue
+
+        if not name:
+            name = f'Child {idx}'
+
+        today = date.today()
+        if age_months and age_months > 0:
+            months = int(age_months)
+            year = today.year if today.month > months else today.year - 1
+            month = today.month - months
+            if month <= 0:
+                month += 12
+                year -= 1
+            dob = date(year, max(1, min(12, month)), 1)
+        else:
+            age_int = max(0, int(float(age)))
+            dob = date(today.year - age_int, 1, 1)
+
+        Child.objects.create(
+            parent=profile,
+            name=name,
+            date_of_birth=dob,
+            interests=child_data.get('interests', []),
+            school_name=child_data.get('school_name', ''),
+        )
+
+    for event_data in data.get('schedule_events', []):
+        if event_data.get('title'):
+            child = None
+            child_name = event_data.get('child_name', '')
+            if child_name:
+                child = profile.children.filter(name__icontains=child_name).first()
+
+            ScheduleEvent.objects.create(
+                profile=profile,
+                child=child,
+                event_type=event_data.get('event_type', 'personal'),
+                title=event_data['title'],
+                start_time=event_data.get('start_time') or '09:00',
+                end_time=event_data.get('end_time') or None,
+                recurrence=event_data.get('recurrence', 'weekdays'),
+                recurrence_days=event_data.get('recurrence_days', []),
+            )
+
+    # Now that children exist, derive user_type and compose the dashboard
+    # layout from the actual data. If the caller explicitly set a
+    # user_type (chat flow), honour it — otherwise derive from data.
+    children_qs = list(profile.children.all())
+    if explicit_user_type:
+        profile.user_type = explicit_user_type
+    else:
+        profile.user_type = _derive_user_type(profile.works_outside_home, children_qs)
+    profile.custom_layout = build_initial_layout(profile)
+    profile.onboarding_complete = True
+    profile.save()
+
+    return profile
 
 
 class OnboardingChatView(APIView):
@@ -1608,9 +1759,12 @@ class OnboardingChatView(APIView):
 
         if result.get('is_complete'):
             profile_data = result.get('profile_data', {})
-            # Save profile data
-            self._save_profile(request.user, session, profile_data)
-            # Clean up session
+            save_onboarding_profile(
+                request.user,
+                profile_data,
+                fallback_name=session['name'],
+                fallback_user_type=session['db_type'],
+            )
             del _onboarding_sessions[session_id]
 
             return Response({
@@ -1626,101 +1780,26 @@ class OnboardingChatView(APIView):
             'is_complete': result.get('is_complete', False),
         })
 
-    def _save_profile(self, user, session, data):
-        """Save the extracted profile data to the database."""
-        from datetime import date
 
-        profile, _ = UserProfile.objects.get_or_create(
-            user=user,
-            defaults={'display_name': session['name']},
-        )
+class OnboardingCompleteView(APIView):
+    """POST /api/v1/onboarding/complete/ — form-based onboarding submission."""
+    permission_classes = [IsAuthenticated]
 
-        # Update profile fields
-        profile.display_name = data.get('display_name', session['name'])
-        profile.user_type = session['db_type']
-        profile.dietary_restrictions = data.get('dietary_restrictions', [])
-        profile.health_conditions = data.get('health_conditions', [])
-        profile.family_size = data.get('family_size', 1)
-        profile.cuisine_preferences = data.get('cuisine_preferences', [])
-        profile.breakfast_weight = data.get('breakfast_weight', 'light')
-        profile.breakfast_types = data.get('breakfast_types', [])
-        profile.lunch_weight = data.get('lunch_weight', 'heavy')
-        profile.lunch_types = data.get('lunch_types', [])
-        profile.dinner_weight = data.get('dinner_weight', 'light')
-        profile.dinner_types = data.get('dinner_types', [])
-        profile.snack_preferences = data.get('snack_preferences', [])
-        profile.planning_modules = data.get('planning_modules', [])
-        profile.grocery_day = data.get('grocery_day', 'Saturday')
-        profile.exclusions = data.get('exclusions', [])
-        profile.notes = data.get('notes', '')
-        profile.module_preferences = data.get('module_preferences', {})
-
-        # Build initial custom_layout from Layer 1 (user type) + Layer 2 (AI modules)
-        profile.custom_layout = build_initial_layout(
-            session['db_type'],
-            data.get('planning_modules', []),
-        )
-
-        profile.onboarding_complete = True
-        profile.save()
-
-        # Create children. Missing age → skip (we can't plan without it, and
-        # guessing produces wildly wrong activities). Missing name but known
-        # age → save as "Child N" placeholder so the plan still works; the
-        # user can rename in profile settings.
-        for idx, child_data in enumerate(data.get('children', []), start=1):
-            name = (child_data.get('name') or '').strip()
-            age = child_data.get('age', 0)
-            age_months = child_data.get('age_months', 0)
-
-            if not age and not age_months:
-                continue
-
-            if not name:
-                name = f'Child {idx}'
-
-            today = date.today()
-            if age_months and age_months > 0:
-                # Baby — age given in months
-                months = int(age_months)
-                year = today.year if today.month > months else today.year - 1
-                month = today.month - months
-                if month <= 0:
-                    month += 12
-                    year -= 1
-                dob = date(year, max(1, min(12, month)), 1)
-            else:
-                # Older child — age given in years
-                age_int = max(0, int(float(age)))
-                dob = date(today.year - age_int, 1, 1)
-
-            Child.objects.create(
-                parent=profile,
-                name=name,
-                date_of_birth=dob,
-                interests=child_data.get('interests', []),
-                school_name=child_data.get('school_name', ''),
+    def post(self, request):
+        profile_data = request.data or {}
+        # user_type is derived server-side now; only display_name is required.
+        if not profile_data.get('display_name'):
+            return Response(
+                {'error': 'display_name is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Create schedule events
-        for event_data in data.get('schedule_events', []):
-            if event_data.get('title'):
-                # Link to child by name if provided
-                child = None
-                child_name = event_data.get('child_name', '')
-                if child_name:
-                    child = profile.children.filter(name__icontains=child_name).first()
+        save_onboarding_profile(request.user, profile_data)
 
-                ScheduleEvent.objects.create(
-                    profile=profile,
-                    child=child,
-                    event_type=event_data.get('event_type', 'personal'),
-                    title=event_data['title'],
-                    start_time=event_data.get('start_time') or '09:00',
-                    end_time=event_data.get('end_time') or None,
-                    recurrence=event_data.get('recurrence', 'weekdays'),
-                    recurrence_days=event_data.get('recurrence_days', []),
-                )
+        return Response({
+            'is_complete': True,
+            'profile_data': profile_data,
+        })
 
 
 # -------------------------------------------------------------------
@@ -1732,23 +1811,25 @@ class GenerateKidsActivitiesView(APIView):
 
     def post(self, request):
         profile = request.user.profile
-        # Only children 3+ can use activities.
-        if not any(c.age >= 3 for c in profile.children.all()):
+        # Ages 2-12 qualify (2-3 gets a story-only pack; teens don't get one).
+        if not any(2 <= c.age < 13 for c in profile.children.all()):
             return Response(
-                {'error': 'Activities are for children aged 3 and up.'},
+                {'error': 'Activities are for children aged 2 through 12.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         today = date.today()
 
+        # Retry is idempotent — if a complete plan is already on disk (e.g.
+        # from a concurrent /current/ call that won the race), return it
+        # instead of 409 so the UI can recover. The generator itself wipes
+        # any empty-shell plan on next run.
         existing = KidsActivityPlan.objects.filter(
             profile=profile, week_start_date=today,
         ).first()
         if existing and existing.days.exists():
-            return Response(
-                {'error': 'Activities already generated for today.'},
-                status=status.HTTP_409_CONFLICT,
-            )
+            serializer = KidsActivityPlanSerializer(existing)
+            return Response(serializer.data, status=status.HTTP_200_OK)
 
         try:
             generator = KidsActivityGenerator()
@@ -1776,8 +1857,9 @@ class CurrentKidsActivitiesView(APIView):
             week_start_date=today,
         ).first()
 
-        # Only children 3+ can use activities — under-3s are ignored here.
-        has_children = any(c.age >= 3 for c in profile.children.all())
+        # Ages 2-12 qualify for an activity pack (2-3 gets story-only;
+        # teens aren't served by this section).
+        has_children = any(2 <= c.age < 13 for c in profile.children.all())
 
         if not plan and has_children:
             try:

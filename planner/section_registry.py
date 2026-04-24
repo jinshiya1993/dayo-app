@@ -16,14 +16,6 @@ SECTION_REGISTRY = {
         'lockable': False,
         'category': 'essentials',
     },
-    'meal_compact': {
-        'label': 'Meals',
-        'subtitle': 'Quick meal overview',
-        'icon': 'meals',
-        'emoji': '🍽',
-        'lockable': False,
-        'category': 'essentials',
-    },
     'grocery': {
         'label': 'Grocery list',
         'subtitle': "This week's shopping",
@@ -165,36 +157,12 @@ SECTION_REGISTRY = {
         'category': 'baby',
     },
 
-    # ── Professional sections ────────────────────────────────────
-    'deep_work': {
-        'label': 'Deep work block',
-        'subtitle': 'Protected focus time',
-        'icon': 'focus',
-        'emoji': '🎯',
-        'lockable': False,
-        'category': 'work',
-    },
+    # ── Work sections (working parents) ──────────────────────────
     'priorities': {
         'label': "Today's priorities",
         'subtitle': 'Top 3 tasks',
         'icon': 'priorities',
         'emoji': '📌',
-        'lockable': False,
-        'category': 'work',
-    },
-    'meetings': {
-        'label': 'Meetings',
-        'subtitle': "Today's calls and meetings",
-        'icon': 'meetings',
-        'emoji': '🤝',
-        'lockable': False,
-        'category': 'work',
-    },
-    'end_of_day': {
-        'label': 'End of day',
-        'subtitle': 'Stop work reminder',
-        'icon': 'end',
-        'emoji': '🌅',
         'lockable': False,
         'category': 'work',
     },
@@ -242,17 +210,6 @@ DEFAULT_LAYOUTS = {
         {'key': 'me_time', 'visible': True, 'locked': False},
         {'key': 'notes', 'visible': True, 'locked': False},
     ],
-    'professional': [
-        {'key': 'schedule_alert', 'visible': True, 'locked': False},
-        {'key': 'deep_work', 'visible': True, 'locked': False},
-        {'key': 'priorities', 'visible': True, 'locked': False},
-        {'key': 'meetings', 'visible': True, 'locked': False},
-        {'key': 'meal_compact', 'visible': True, 'locked': False},
-        {'key': 'grocery', 'visible': True, 'locked': False},
-        {'key': 'exercise', 'visible': True, 'locked': False},
-        {'key': 'end_of_day', 'visible': True, 'locked': False},
-        {'key': 'notes', 'visible': True, 'locked': False},
-    ],
 }
 
 # ─── Module → section key mapping ─────────────────────────────────
@@ -288,43 +245,73 @@ MODULE_TO_SECTION = {
     'recovery': 'recovery_exercise',
     'milestones': 'milestones',
     'essentials': 'essentials',
-    'deep_work': 'deep_work',
     'priorities': 'priorities',
     'work': 'priorities',
-    'meetings': 'meetings',
-    'work_schedule': 'deep_work',
-    'commute': 'end_of_day',
     'evening_routine': 'evening_routine',
 }
 
 
-def build_initial_layout(user_type, planning_modules=None):
+def build_initial_layout(profile):
+    """Derive a dashboard layout from the user's actual life data.
+
+    Gates each section on profile.works_outside_home plus the set of
+    children age bands (postpartum <3mo, infant <24mo, kid 2-12yr). There
+    is no single user_type label driving the layout anymore — a working
+    mom with a newborn and a 5-year-old gets the union of all the
+    relevant sections.
     """
-    Build the initial custom_layout for a new user.
-    Layer 1: Start with user_type defaults
-    Layer 2: Add/modify based on AI-extracted planning_modules
-    Returns a list of {key, visible, locked, added_by_ai} dicts.
-    """
-    # Layer 1 — defaults
-    layout = [item.copy() for item in DEFAULT_LAYOUTS.get(user_type, DEFAULT_LAYOUTS['homemaker'])]
-    existing_keys = {item['key'] for item in layout}
+    from datetime import date
 
-    if not planning_modules:
-        return layout
+    children = list(profile.children.all()) if profile.pk else []
+    works = bool(profile.works_outside_home)
 
-    # Layer 2 — add sections from AI-extracted modules
-    for mod in planning_modules:
-        mod_lower = mod.lower().replace(' ', '_')
-        section_key = MODULE_TO_SECTION.get(mod_lower)
+    today = date.today()
 
-        if section_key and section_key not in existing_keys:
-            # AI detected the user wants this — add it
-            layout.append({
-                'key': section_key,
-                'visible': True,
-                'locked': False,
-                'added_by_ai': True,
-            })
-            existing_keys.add(section_key)
+    def months_old(child):
+        dob = child.date_of_birth
+        return (today.year - dob.year) * 12 + (today.month - dob.month)
 
+    has_postpartum = any(months_old(c) < 3 for c in children)
+    has_infant = any(months_old(c) < 24 for c in children)
+    # has_kid covers 2y through 12y — the 2-3y band is story-only, the
+    # generator handles that. class_alert rides along with kids_activities.
+    has_kid = any(2 <= c.age < 13 for c in children)
+
+    ordered = []
+    ordered.append('schedule_alert')
+
+    if works:
+        ordered.append('priorities')
+
+    # Exactly ONE meal section per dashboard. mom_meals is the one-hand
+    # friendly variant saved to plan_data.mom_meals for user_type='new_mom';
+    # everyone else reads from plan_data.meals via meal_cards.
+    ordered.append('mom_meals' if has_infant else 'meal_cards')
+
+    if has_infant:
+        ordered += ['baby_schedule', 'essentials', 'milestones']
+
+    if has_postpartum:
+        ordered += ['mom_rest', 'recovery_exercise', 'selfcare_list']
+
+    if has_kid:
+        ordered += ['kids_activities', 'class_alert']
+
+    ordered.append('grocery')
+    ordered.append('housework')
+
+    if works and (has_infant or has_kid):
+        ordered.append('evening_routine')
+
+    ordered += ['me_time', 'notes']
+
+    # De-dupe while preserving order — easy way to tolerate the overlap
+    # between has_postpartum and has_infant (postpartum is a strict subset).
+    seen = set()
+    layout = []
+    for key in ordered:
+        if key in seen or key not in SECTION_REGISTRY:
+            continue
+        seen.add(key)
+        layout.append({'key': key, 'visible': True, 'locked': False})
     return layout
