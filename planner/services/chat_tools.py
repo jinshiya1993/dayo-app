@@ -34,9 +34,11 @@ def remove_grocery_item(name: str) -> str:
 
 
 @tool
-def swap_meal(meal_type: str, preference: str = "") -> str:
-    """Swap a meal in today's plan. meal_type must be breakfast, lunch, or dinner.
-    Optionally specify a preference like 'something lighter' or 'South Indian'."""
+def swap_meal(meal_type: str, preference: str = "", target_date: str = "") -> str:
+    """Swap a meal in the user's plan. meal_type must be breakfast, lunch, or dinner.
+    Optionally specify a preference like 'something lighter' or 'South Indian'.
+    target_date is YYYY-MM-DD — defaults to today. Pass tomorrow's date to swap
+    tomorrow's meal."""
     return ""
 
 
@@ -79,6 +81,16 @@ def add_errand(title: str, description: str = "") -> str:
 
 
 @tool
+def regenerate_kids_activities(level: str, child_name: str = "") -> str:
+    """Set the difficulty level for kids activities and regenerate today's pack.
+    level must be one of: easy, standard, advanced, olympiad.
+    child_name (optional, case-insensitive) targets a specific child; leave
+    empty to apply to all children. Use this when the user asks to make the
+    activities harder, easier, olympiad-level, or competition-grade."""
+    return ""
+
+
+@tool
 def web_search(query: str) -> str:
     """Search the web for information."""
     return ""
@@ -96,6 +108,7 @@ def get_all_tools():
         add_schedule_event,
         add_metime_activity,
         add_errand,
+        regenerate_kids_activities,
     ]
 
 
@@ -115,7 +128,12 @@ def describe_action(tool_name, tool_args):
     if tool_name == 'swap_meal':
         pref = a.get('preference', '')
         suffix = ' to %s' % pref if pref else ''
-        return 'Swap your %s%s' % (a.get('meal_type', '?'), suffix)
+        td = a.get('target_date', '')
+        if td and td != date.today().strftime('%Y-%m-%d'):
+            day_part = '%s\'s ' % td
+        else:
+            day_part = ''
+        return 'Swap %s%s%s' % (day_part, a.get('meal_type', '?'), suffix)
     if tool_name == 'add_housework_task':
         return 'Add "%s" to today\'s housework' % a.get('name', '?')
     if tool_name == 'mark_housework_done':
@@ -129,6 +147,11 @@ def describe_action(tool_name, tool_args):
         return 'Add me-time: %s (%s mins)' % (a.get('activity', '?'), a.get('duration_minutes', 30))
     if tool_name == 'add_errand':
         return 'Add errand: %s' % a.get('title', '?')
+    if tool_name == 'regenerate_kids_activities':
+        who = a.get('child_name') or 'all kids'
+        return 'Set %s\'s activities to %s level and regenerate today\'s pack' % (
+            who, a.get('level', '?')
+        )
     if tool_name == 'web_search':
         return 'Search the web for "%s"' % a.get('query', '?')
     return 'Run %s' % tool_name
@@ -196,19 +219,29 @@ def _execute_remove_grocery_item(profile, args):
 
 
 def _execute_swap_meal(profile, args):
+    from datetime import datetime as dt
     from .ai_context import AIContextAssembler
 
     meal_type = args.get('meal_type', '')
     preference = args.get('preference', '')
+    target_date_str = args.get('target_date', '')
 
     if meal_type not in ('breakfast', 'lunch', 'dinner'):
         return {"success": False, "message": "meal_type must be breakfast, lunch, or dinner."}
 
-    today = date.today()
+    if target_date_str:
+        try:
+            target_date = dt.strptime(target_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return {"success": False, "message": f"Invalid date '{target_date_str}'. Use YYYY-MM-DD."}
+    else:
+        target_date = date.today()
+
+    day_label = "today" if target_date == date.today() else target_date.strftime('%A %b %d')
     try:
-        day_plan = DayPlan.objects.get(profile=profile, date=today)
+        day_plan = DayPlan.objects.get(profile=profile, date=target_date)
     except DayPlan.DoesNotExist:
-        return {"success": False, "message": "No plan for today. Generate one first."}
+        return {"success": False, "message": f"No plan for {day_label}. Generate one first."}
 
     plan_data = day_plan.plan_data or {}
     meals_key = 'mom_meals' if 'mom_meals' in plan_data else 'meals'
@@ -216,7 +249,7 @@ def _execute_swap_meal(profile, args):
     current_name = meals.get(meal_type, {}).get('name', 'unknown')
 
     assembler = AIContextAssembler(profile)
-    context = assembler.build_plan_generation_context(today)
+    context = assembler.build_plan_generation_context(target_date)
     favourites = list(profile.favourite_meals.values_list('meal_name', flat=True)[:10])
     fav_text = f"\nFavourite meals: {', '.join(favourites)}" if favourites else ""
 
@@ -253,7 +286,8 @@ def _execute_swap_meal(profile, args):
     day_plan.plan_data = plan_data
     day_plan.save()
 
-    return {"success": True, "message": f"Swapped {meal_type} to {new_meal.get('name', 'a new meal')}."}
+    prefix = "" if target_date == date.today() else f"{day_label}'s "
+    return {"success": True, "message": f"Swapped {prefix}{meal_type} to {new_meal.get('name', 'a new meal')}."}
 
 
 def _execute_add_housework_task(profile, args):
@@ -387,6 +421,44 @@ def _execute_add_errand(profile, args):
     return {"success": True, "message": f"Added errand: \"{title}\"."}
 
 
+def _execute_regenerate_kids_activities(profile, args):
+    from ..models import Child, KidsActivityPlan
+    from .kids_activity_generator import KidsActivityGenerator
+
+    level = (args.get('level') or '').strip().lower()
+    valid = [c[0] for c in Child.ActivityDifficulty.choices]
+    if level not in valid:
+        return {"success": False, "message": f"Level must be one of: {', '.join(valid)}."}
+
+    child_name = (args.get('child_name') or '').strip()
+    children_qs = Child.objects.filter(parent=profile)
+    if child_name:
+        target = children_qs.filter(name__iexact=child_name)
+        if not target.exists():
+            return {"success": False, "message": f"No child named '{child_name}'."}
+    else:
+        target = children_qs
+
+    if not target.exists():
+        return {"success": False, "message": "You don't have any children on your profile."}
+
+    target.update(activity_difficulty=level)
+
+    today = date.today()
+    KidsActivityPlan.objects.filter(profile=profile, week_start_date=today).delete()
+
+    try:
+        KidsActivityGenerator().generate_daily_plan(profile, target_date=today)
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
+    except Exception as e:
+        logger.error(f"Kids activity regeneration failed: {e}")
+        return {"success": False, "message": "Couldn't regenerate the activities. Please try again."}
+
+    who = child_name if child_name else "all kids"
+    return {"success": True, "message": f"Set {who}'s activities to {level} level and regenerated today's pack."}
+
+
 def _execute_web_search(profile, args):
     return {"success": False, "message": "Web search is coming soon."}
 
@@ -405,5 +477,6 @@ TOOL_EXECUTORS = {
     'add_schedule_event': _execute_add_schedule_event,
     'add_metime_activity': _execute_add_metime_activity,
     'add_errand': _execute_add_errand,
+    'regenerate_kids_activities': _execute_regenerate_kids_activities,
     'web_search': _execute_web_search,
 }

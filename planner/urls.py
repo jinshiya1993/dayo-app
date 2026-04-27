@@ -34,6 +34,7 @@ urlpatterns = [
     # Favourite meals
     path('meals/favourites/', views.FavouriteMealListView.as_view(), name='favourite-meals-list'),
     path('meals/favourite/', views.FavouriteMealToggleView.as_view(), name='favourite-meal-toggle'),
+    path('meals/suggestions/', views.MealSuggestionsView.as_view(), name='meal-suggestions'),
 
     # Chat
     path('chat/', views.ChatConversationListCreateView.as_view(), name='chat-list-create'),

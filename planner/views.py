@@ -55,6 +55,7 @@ from .services.chat_service import ChatService
 from .services.grocery_generator import GroceryGenerator
 from .services.kids_activity_generator import KidsActivityGenerator
 from .services.kids_activity_pdf import KidsActivityPDFGenerator
+from .services.meal_suggester import get_suggestions as get_meal_suggestions
 from .services.plan_generator import PlanGenerator
 from .services.profile_builder import ProfileBuilderAgent
 from .section_registry import SECTION_REGISTRY, build_initial_layout
@@ -491,6 +492,19 @@ class FavouriteMealListView(APIView):
             'id', 'meal_name', 'meal_type', 'description', 'created_at'
         )
         return Response(list(favourites))
+
+
+class MealSuggestionsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        cuisine = (request.query_params.get('cuisine') or '').strip()
+        if not cuisine:
+            return Response(
+                {'error': 'cuisine query param required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(get_meal_suggestions(cuisine))
 
 
 class WeeklyMealsView(APIView):

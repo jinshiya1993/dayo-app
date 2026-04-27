@@ -93,10 +93,11 @@ export const plans = {
   generateWeek: () => request('/plans/weekly/', { method: 'POST' }),
 };
 
-// Favourite meals
+// Favourite meals + cuisine-driven suggestions
 export const meals = {
   listFavourites: () => request('/meals/favourites/'),
   toggleFavourite: (mealName, mealType, description) => request('/meals/favourite/', { method: 'POST', body: JSON.stringify({ meal_name: mealName, meal_type: mealType, description }) }),
+  suggestions: (cuisine) => request(`/meals/suggestions/?cuisine=${encodeURIComponent(cuisine)}`),
 };
 
 // Chat

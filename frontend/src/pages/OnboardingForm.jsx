@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { profile as profileApi, onboarding as onboardingApi } from '../services/api';
+import { profile as profileApi, onboarding as onboardingApi, meals as mealsApi } from '../services/api';
 
 const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Eggetarian', 'Jain', 'Halal', 'Gluten-free', 'Dairy-free'];
 const HEALTH_OPTIONS = ['PCOS', 'Diabetes', 'Hypothyroidism', 'Iron deficiency', 'High protein', 'Lactose intolerant', 'Cholesterol'];
@@ -54,6 +54,11 @@ export default function OnboardingForm() {
   const [health, setHealth] = useState([]);
   const [exclusions, setExclusions] = useState([]);
   const [cuisines, setCuisines] = useState([]);
+  const [breakfastTypes, setBreakfastTypes] = useState([]);
+  const [lunchTypes, setLunchTypes] = useState([]);
+  const [dinnerTypes, setDinnerTypes] = useState([]);
+  // { 'south indian': { breakfast: [...], lunch: [...], dinner: [...] } }
+  const [mealSuggestions, setMealSuggestions] = useState({});
   const [groceryDay, setGroceryDay] = useState('');
   const [children, setChildren] = useState([]);
   const [events, setEvents] = useState([]);
@@ -63,6 +68,19 @@ export default function OnboardingForm() {
       navigate('/onboarding', { replace: true });
     }
   }, [name, navigate]);
+
+  // Fetch meal suggestions for any cuisine the user just picked. Each cuisine
+  // is fetched at most once per session — backend caches across sessions.
+  useEffect(() => {
+    cuisines.forEach((cuisine) => {
+      const key = cuisine.toLowerCase();
+      if (mealSuggestions[key]) return;
+      mealsApi.suggestions(cuisine).then((res) => {
+        if (res?.error) return;
+        setMealSuggestions((prev) => ({ ...prev, [key]: res }));
+      });
+    });
+  }, [cuisines, mealSuggestions]);
 
   const currentStep = steps[stepIdx];
   const isLast = stepIdx === steps.length - 1;
@@ -147,6 +165,9 @@ export default function OnboardingForm() {
       health_conditions: health,
       exclusions,
       cuisine_preferences: cuisines,
+      breakfast_types: breakfastTypes,
+      lunch_types: lunchTypes,
+      dinner_types: dinnerTypes,
       grocery_day: groceryDay,
       children: childrenPayload,
       schedule_events: eventsPayload,
@@ -199,7 +220,17 @@ export default function OnboardingForm() {
           />
         )}
         {currentStep === 'food' && (
-          <FoodStep cuisines={cuisines} setCuisines={setCuisines} />
+          <FoodStep
+            cuisines={cuisines}
+            setCuisines={setCuisines}
+            mealSuggestions={mealSuggestions}
+            breakfastTypes={breakfastTypes}
+            setBreakfastTypes={setBreakfastTypes}
+            lunchTypes={lunchTypes}
+            setLunchTypes={setLunchTypes}
+            dinnerTypes={dinnerTypes}
+            setDinnerTypes={setDinnerTypes}
+          />
         )}
         {currentStep === 'grocery' && (
           <GroceryStep groceryDay={groceryDay} setGroceryDay={setGroceryDay} />
@@ -385,12 +416,73 @@ function HouseholdStep({ familySize, setFamilySize, dietary, setDietary, health,
   );
 }
 
-function FoodStep({ cuisines, setCuisines }) {
+function aggregateMealOptions(cuisines, mealSuggestions, meal) {
+  const seen = new Set();
+  const out = [];
+  cuisines.forEach((cuisine) => {
+    const bucket = mealSuggestions[cuisine.toLowerCase()];
+    if (!bucket) return;
+    (bucket[meal] || []).forEach((item) => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(item);
+    });
+  });
+  return out;
+}
+
+function FoodStep({
+  cuisines, setCuisines,
+  mealSuggestions,
+  breakfastTypes, setBreakfastTypes,
+  lunchTypes, setLunchTypes,
+  dinnerTypes, setDinnerTypes,
+}) {
+  const showMeals = cuisines.length > 0;
+  const breakfastOpts = aggregateMealOptions(cuisines, mealSuggestions, 'breakfast');
+  const lunchOpts = aggregateMealOptions(cuisines, mealSuggestions, 'lunch');
+  const dinnerOpts = aggregateMealOptions(cuisines, mealSuggestions, 'dinner');
+
+  // True while we're waiting for any selected cuisine's suggestions to load.
+  const loadingSuggestions = showMeals && cuisines.some(
+    (c) => !mealSuggestions[c.toLowerCase()]
+  );
+
   return (
     <>
       <StepHeading title="Food preferences" subtitle="Pick the cuisines you cook most" />
       <Label>Cuisines</Label>
       <ChipMultiSelect options={CUISINE_OPTIONS} selected={cuisines} onToggle={(v) => setCuisines(toggleInArray(cuisines, v))} />
+
+      {showMeals && (
+        <>
+          {loadingSuggestions && breakfastOpts.length === 0 && lunchOpts.length === 0 && dinnerOpts.length === 0 ? (
+            <p style={{ color: '#888', fontSize: 13, marginTop: 12 }}>Loading meal ideas…</p>
+          ) : null}
+
+          <Label>Breakfast</Label>
+          <ChipMultiSelect
+            options={breakfastOpts}
+            selected={breakfastTypes}
+            onToggle={(v) => setBreakfastTypes(toggleInArray(breakfastTypes, v))}
+          />
+
+          <Label>Lunch</Label>
+          <ChipMultiSelect
+            options={lunchOpts}
+            selected={lunchTypes}
+            onToggle={(v) => setLunchTypes(toggleInArray(lunchTypes, v))}
+          />
+
+          <Label>Dinner</Label>
+          <ChipMultiSelect
+            options={dinnerOpts}
+            selected={dinnerTypes}
+            onToggle={(v) => setDinnerTypes(toggleInArray(dinnerTypes, v))}
+          />
+        </>
+      )}
     </>
   );
 }

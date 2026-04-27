@@ -84,13 +84,15 @@ class AIContextAssembler:
         return {'system_prompt': system_prompt, 'user_message': user_message}
 
     def build_chat_context(self):
-        """Full context for chat — profile, preferences, today's plan, schedule, grocery, housework."""
+        """Full context for chat — profile, preferences, today's + tomorrow's plan, schedule, grocery, housework."""
         target_date = date.today()
+        tomorrow = target_date + timedelta(days=1)
         sections = [
             self._base_profile_section(),
             self._preferences_section(),
             self._schedule_section(target_date),
-            self._todays_plan_section(target_date),
+            self._day_plan_section(target_date, "Today"),
+            self._day_plan_section(tomorrow, "Tomorrow"),
             self._active_grocery_section(),
             self._todays_housework_section(target_date),
         ]
@@ -122,6 +124,13 @@ class AIContextAssembler:
             "## How to handle actions\n"
             "- When the user asks to DO something, use the right tool immediately — don't ask unnecessary "
             "confirmation questions. Just explain what you're doing and call the tool.\n"
+            "- NEVER claim you did an action ('I added X', 'I swapped Y', 'I cancelled Z', "
+            "'I've put X on your list') unless you actually CALLED the tool in this turn. "
+            "If you did not call a tool, do not pretend you did — instead ask for the missing "
+            "detail or do nothing. Hallucinating actions is worse than asking a clarifying question.\n"
+            "- Treat short follow-up replies (e.g. user just says 'mango' after you asked which "
+            "fruit to add) as a continuation of the previous request — call the tool with that value, "
+            "do not just reply in text.\n"
             "- When explaining an action, reference the REAL current data. "
             "e.g. 'I'll swap your lunch from Grilled Salmon to Butter Chicken' (not just 'I'll swap your lunch')\n"
             "- Call at most ONE tool per response. If multiple actions are needed, "
@@ -131,6 +140,13 @@ class AIContextAssembler:
             "with the preference — do NOT use web_search for recipes. Just swap directly.\n"
             "- When asked to change ALL meals, swap them one at a time: breakfast → lunch → dinner. "
             "Pick a great dish that fits their request — don't ask for options.\n"
+            "- When the user mentions a day other than today for a meal swap "
+            "(e.g. 'change tomorrow's lunch', 'swap Friday's dinner'), pass "
+            "swap_meal's target_date in YYYY-MM-DD format. Default is today.\n"
+            "- When the user wants to make kids' activities easier, harder, "
+            "advanced, or olympiad/competition-level, call regenerate_kids_activities "
+            "with the appropriate level. Pass child_name only if the user named a "
+            "specific child; otherwise leave it empty to apply to all kids.\n"
             "- When adding schedule events, ALWAYS include event_date in YYYY-MM-DD format. "
             "Today is %s. Tomorrow is %s.\n\n"
 
@@ -661,16 +677,17 @@ class AIContextAssembler:
     # Chat-specific context sections
     # ------------------------------------------------------------------
 
-    def _todays_plan_section(self, target_date):
-        """Summarise today's day plan for chat context."""
+    def _day_plan_section(self, target_date, label="Today"):
+        """Summarise a day plan for chat context. `label` is used in the
+        heading and the empty-state message ('Today' / 'Tomorrow')."""
         from ..models import DayPlan
         try:
             plan = DayPlan.objects.get(profile=self.profile, date=target_date, status='ready')
         except DayPlan.DoesNotExist:
-            return "## Today's Plan\nNo plan generated yet for today.\n"
+            return f"## {label}'s Plan\nNo plan generated yet for {label.lower()}.\n"
 
         d = plan.plan_data or {}
-        lines = ["## Today's Plan"]
+        lines = [f"## {label}'s Plan"]
 
         # Meals
         meals = d.get('meals') or d.get('mom_meals') or {}

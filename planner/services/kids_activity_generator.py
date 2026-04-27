@@ -171,12 +171,24 @@ class KidsActivityGenerator:
 
         return plan
 
+    DIFFICULTY_DESCRIPTIONS = {
+        'easy': 'EASY (one step below age — extra scaffolding, simpler vocabulary, lots of repetition)',
+        'standard': 'STANDARD (age-appropriate)',
+        'advanced': 'ADVANCED (1-2 years above age — challenging vocabulary, multi-step reasoning)',
+        'olympiad': (
+            'OLYMPIAD (competition-grade — multi-step logic puzzles, abstract reasoning, '
+            'rich vocabulary, math/word problems requiring 2-3 deductions)'
+        ),
+    }
+
     def _build_prompt(self, children, target_date):
         children_info = []
         has_toddler = False
         has_older = False
         for child in children:
             interests = ', '.join(child.interests) if child.interests else 'general'
+            difficulty = getattr(child, 'activity_difficulty', 'standard') or 'standard'
+            diff_label = self.DIFFICULTY_DESCRIPTIONS.get(difficulty, self.DIFFICULTY_DESCRIPTIONS['standard'])
             if child.age < 3:
                 has_toddler = True
                 children_info.append(
@@ -185,7 +197,8 @@ class KidsActivityGenerator:
             else:
                 has_older = True
                 children_info.append(
-                    f"- {child.name}: age {child.age}, interests: {interests}"
+                    f"- {child.name}: age {child.age}, interests: {interests}, "
+                    f"difficulty: {diff_label}"
                 )
         children_block = '\n'.join(children_info)
 

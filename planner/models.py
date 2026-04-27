@@ -163,6 +163,12 @@ class UserProfile(models.Model):
 # 2. Child
 # -------------------------------------------------------------------
 class Child(models.Model):
+    class ActivityDifficulty(models.TextChoices):
+        EASY = 'easy', 'Easy'
+        STANDARD = 'standard', 'Standard'
+        ADVANCED = 'advanced', 'Advanced'
+        OLYMPIAD = 'olympiad', 'Olympiad'
+
     parent = models.ForeignKey(
         UserProfile,
         on_delete=models.CASCADE,
@@ -173,6 +179,11 @@ class Child(models.Model):
     interests = models.JSONField(default=list, blank=True)
     school_name = models.CharField(max_length=200, blank=True)
     notes = models.TextField(blank=True)
+    activity_difficulty = models.CharField(
+        max_length=20,
+        choices=ActivityDifficulty.choices,
+        default=ActivityDifficulty.STANDARD,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -855,3 +866,18 @@ class KidsActivityDay(models.Model):
         if next_day and not next_day.unlocked:
             next_day.unlocked = True
             next_day.save(update_fields=['unlocked'])
+
+
+class CuisineMealSuggestions(models.Model):
+    """AI-generated breakfast/lunch/dinner ideas for a cuisine, cached per
+    normalized cuisine name so we hit Gemini at most once per unique cuisine."""
+
+    cuisine = models.CharField(max_length=80, unique=True)
+    display_cuisine = models.CharField(max_length=80)
+    breakfast = models.JSONField(default=list)
+    lunch = models.JSONField(default=list)
+    dinner = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.display_cuisine
