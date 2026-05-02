@@ -774,7 +774,7 @@ function MemberEditCard({ idx, member, onChange, onDone, onRemove }) {
         onClick={() => setShowOverrides((v) => !v)}
         style={expandToggleStyle}
       >
-        {showOverrides ? '− Hide dietary / health' : '+ Edit dietary / health (optional)'}
+        {showOverrides ? '− Hide dietary / health' : '+ Edit dietary / health'}
       </button>
 
       {showOverrides && (
