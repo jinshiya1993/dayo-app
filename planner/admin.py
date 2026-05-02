@@ -3,9 +3,9 @@ from django.contrib import admin
 from .models import (
     ChatConversation,
     ChatMessage,
-    Child,
     DayPlan,
     FavouriteMeal,
+    HouseholdMember,
     GroceryItem,
     GroceryList,
     HouseworkList,
@@ -29,10 +29,10 @@ class UserProfileAdmin(admin.ModelAdmin):
     list_filter = ['user_type', 'onboarding_complete']
 
 
-@admin.register(Child)
-class ChildAdmin(admin.ModelAdmin):
-    list_display = ['name', 'parent', 'date_of_birth', 'age']
-    list_filter = ['parent']
+@admin.register(HouseholdMember)
+class HouseholdMemberAdmin(admin.ModelAdmin):
+    list_display = ['name', 'role', 'parent', 'date_of_birth', 'age']
+    list_filter = ['role', 'parent']
 
 
 @admin.register(ScheduleEvent)

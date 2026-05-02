@@ -34,7 +34,8 @@ export default function Dashboard() {
     ]);
 
     if (!prof.error) setProfileData(prof);
-    const children = !ch.error && Array.isArray(ch) ? ch : [];
+    const allMembers = !ch.error && Array.isArray(ch) ? ch : [];
+    const children = allMembers.filter((m) => (m.role || 'child') === 'child');
     setChildList(children);
 
     const hasPlan = todayPlan && !todayPlan.error;

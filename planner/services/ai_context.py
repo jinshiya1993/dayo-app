@@ -2,6 +2,19 @@ from datetime import date, timedelta
 import math
 
 
+def _member_overrides_suffix(member):
+    """Return ', also has: …' clauses for any per-member dietary/health/exclusion
+    overrides set on this HouseholdMember. Empty if no overrides."""
+    parts = []
+    if getattr(member, 'member_health_conditions', None):
+        parts.append(f"also has: {', '.join(member.member_health_conditions)}")
+    if getattr(member, 'member_dietary', None):
+        parts.append(f"diet adds: {', '.join(member.member_dietary)}")
+    if getattr(member, 'member_exclusions', None):
+        parts.append(f"avoids: {', '.join(member.member_exclusions)}")
+    return f" — {' · '.join(parts)}" if parts else ''
+
+
 def build_new_mom_context(profile):
     """Build context dict for new mom users. Safe fallbacks for day 1."""
     baby_name = profile.baby_name or 'Baby'
@@ -240,12 +253,46 @@ class AIContextAssembler:
         exclusions = ', '.join(self.profile.exclusions) if self.profile.exclusions else 'None'
         modules = ', '.join(self.profile.planning_modules) if self.profile.planning_modules else 'General planning'
 
+        secondary = ', '.join(self.profile.secondary_cuisines) if self.profile.secondary_cuisines else ''
+        spice_labels = {1: 'Mild', 2: 'Light', 3: 'Medium', 4: 'Hot', 5: 'Fire'}
+        spice_level = self.profile.spice_level or 3
+        spice_label = spice_labels.get(spice_level, 'Medium')
+
         result = (
             "## Preferences\n"
             f"- Wake time: {self.profile.wake_time.strftime('%H:%M')}\n"
             f"- Sleep time: {self.profile.sleep_time.strftime('%H:%M')}\n"
             f"- Dietary restrictions: {dietary}\n"
-            f"- Cuisine preferences: {cuisine}\n"
+            f"- Primary cuisines (everyday): {cuisine}\n"
+        )
+
+        # Hard food exclusions — surface BEFORE the rest of preferences so
+        # the model treats them as gate, not a footnote.
+        if self.profile.exclusions:
+            result += (
+                f"\n## ⛔ FORBIDDEN INGREDIENTS — STRICT RULE\n"
+                f"The following MUST NEVER appear in any meal, recipe, ingredient list, "
+                f"swap suggestion, or grocery item: **{exclusions}**.\n"
+                f"This is non-negotiable. Treat any plan that mentions these as broken. "
+                f"If the user has 'Halal' as a dietary restriction, also exclude all "
+                f"non-halal meats (pork, gelatin, alcohol-cooked dishes) by default.\n\n"
+            )
+
+        # Compliance is satisfied by ingredient choice, not by labelling.
+        # Never literally write "Halal X" in user-facing text — it reads
+        # awkwardly to non-Muslim members of the household.
+        result += (
+            "\n## NAMING RULE — DO NOT label ingredients or dishes\n"
+            "Never put the word 'Halal' in any meal name, ingredient name, "
+            "recipe step, description, or grocery item. Just say 'chicken broth' "
+            "(not 'Halal chicken broth'), 'soy sauce' (not 'Halal soy sauce'), "
+            "'beef stew' (not 'Halal beef stew'). The dietary compliance is "
+            "satisfied by WHICH ingredients you choose, not by labelling them.\n\n"
+        )
+        if secondary:
+            result += f"- Occasional cuisines (1-2 per week): {secondary}\n"
+        result += (
+            f"- Spice tolerance: {spice_label} ({spice_level}/5) — calibrate heat accordingly\n"
             f"- Health conditions / dietary goals: {health}\n"
             f"- Family size: {family_size} people (meals should be suitable for the whole family)\n"
             f"\n## Planning Focus Areas\n"
@@ -280,6 +327,29 @@ class AIContextAssembler:
                 f"- Dinner: {self.profile.dinner_weight} meal — styles: {dn_types}\n"
                 f"- Snacks: {snacks}\n"
             )
+            if self.profile.exclusions:
+                result += (
+                    f"- 🚫 Forbidden ingredients (re-emphasized): {exclusions}. "
+                    f"Every meal name, recipe, and ingredient list MUST exclude these.\n"
+                )
+
+            cooking = getattr(self.profile, 'cooking_responsibility', 'me') or 'me'
+            if cooking == 'helper':
+                result += (
+                    "\n## Cooking Responsibility — HELPER COOKS\n"
+                    "A household helper does the cooking. Recipes MUST be detailed and "
+                    "self-contained: list every ingredient with quantity, every step in "
+                    "order, and assume no implicit cooking knowledge. Avoid 'cook to taste' "
+                    "or 'as you usually do' — be explicit.\n"
+                )
+            elif cooking == 'eat_out':
+                result += (
+                    "\n## Cooking Responsibility — MOSTLY EATING OUT\n"
+                    "The household rarely cooks at home. Instead of full recipes, suggest "
+                    "specific dishes to ORDER or restaurants to consider for each meal. "
+                    "Keep grocery lists minimal — focus on snacks, breakfast staples, "
+                    "and a few quick-assembly items only.\n"
+                )
 
         # Include per-module preferences
         mod_prefs = self.profile.module_preferences or {}
@@ -597,18 +667,40 @@ class AIContextAssembler:
         return "## Custom Section Preferences (learned)\n" + '\n'.join(all_lines) + '\n'
 
     def _children_section(self):
-        children = self.profile.children.all()
-        if not children:
+        members = list(self.profile.members.all())
+        children = [m for m in members if m.role == 'child']
+        adults = [m for m in members if m.role != 'child']
+
+        if not members:
             return "## Children\nNo children added yet.\n"
 
-        lines = ["## Children"]
-        for child in children:
-            interests = ', '.join(child.interests) if child.interests else 'not specified'
-            line = f"- {child.name} (age {child.age}): interests in {interests}"
-            if child.school_name:
-                line += f", attends {child.school_name}"
-            lines.append(line)
-        return '\n'.join(lines) + '\n'
+        sections = []
+
+        if children:
+            lines = ["## Children"]
+            for child in children:
+                interests = ', '.join(child.interests) if child.interests else 'not specified'
+                line = f"- {child.name} (age {child.age}): interests in {interests}"
+                if child.school_name:
+                    line += f", attends {child.school_name}"
+                line += _member_overrides_suffix(child)
+                lines.append(line)
+            sections.append('\n'.join(lines))
+
+        if adults:
+            lines = [
+                "## Other Household Members",
+                "Per-member additions are ON TOP OF the family-wide preferences. "
+                "Plan one meal that respects every household constraint.",
+            ]
+            for m in adults:
+                role_label = m.get_role_display()
+                line = f"- {m.name} ({role_label}, age {m.age})"
+                line += _member_overrides_suffix(m)
+                lines.append(line)
+            sections.append('\n'.join(lines))
+
+        return '\n\n'.join(sections) + '\n'
 
     def _academic_section(self, target_date):
         academic_types = ['class', 'exam', 'assignment_due', 'study']
@@ -696,9 +788,13 @@ class AIContextAssembler:
             if isinstance(meal, dict):
                 lines.append(f"- {meal_type.title()}: {meal.get('name', '?')}")
 
-        snacks = meals.get('snacks')
-        if isinstance(snacks, list) and snacks:
-            lines.append(f"- Snacks: {', '.join(str(s) for s in snacks)}")
+        snack = meals.get('snack')
+        if isinstance(snack, dict) and snack.get('name'):
+            lines.append(f"- Snack: {snack.get('name')}")
+        else:
+            legacy_snacks = meals.get('snacks')
+            if isinstance(legacy_snacks, list) and legacy_snacks:
+                lines.append(f"- Snacks: {', '.join(str(s) for s in legacy_snacks)}")
 
         # Priorities
         priorities = d.get('priorities', [])

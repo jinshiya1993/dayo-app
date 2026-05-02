@@ -268,8 +268,15 @@ def _execute_swap_meal(profile, args):
         HumanMessage(content=(
             f"Swap the user's {meal_type}. Current: '{current_name}' — suggest something DIFFERENT.\n"
             f"Must be balanced and respect dietary preferences.{fav_text}{pref_text}\n\n"
+            f"Always include `steps`: 4-8 short imperative cooking instructions, "
+            f"and `kcal`: integer calories per single-adult serving.\n"
+            f"If the household has differing dietary needs, include an OPTIONAL `pairings` "
+            f"array of simple per-person sides (rice, chappathi, salad — never a full recipe). "
+            f"Omit pairings entirely when one meal works for everyone.\n\n"
             f"Return ONLY a JSON object:\n"
-            f'{{"name": "Meal name", "prep_mins": 20, "description": "Brief recipe"}}\n'
+            f'{{"name": "Meal name", "prep_mins": 20, "kcal": 480, "description": "Brief recipe", "ingredients": ["..."], '
+            f'"steps": ["Step 1", "Step 2", "Step 3"], '
+            f'"pairings": [{{"for": "Names", "with": "Simple side", "why": "one-line reason"}}]}}\n'
         )),
     ]
 
@@ -422,16 +429,16 @@ def _execute_add_errand(profile, args):
 
 
 def _execute_regenerate_kids_activities(profile, args):
-    from ..models import Child, KidsActivityPlan
+    from ..models import HouseholdMember, KidsActivityPlan
     from .kids_activity_generator import KidsActivityGenerator
 
     level = (args.get('level') or '').strip().lower()
-    valid = [c[0] for c in Child.ActivityDifficulty.choices]
+    valid = [c[0] for c in HouseholdMember.ActivityDifficulty.choices]
     if level not in valid:
         return {"success": False, "message": f"Level must be one of: {', '.join(valid)}."}
 
     child_name = (args.get('child_name') or '').strip()
-    children_qs = Child.objects.filter(parent=profile)
+    children_qs = HouseholdMember.objects.filter(parent=profile, role='child')
     if child_name:
         target = children_qs.filter(name__iexact=child_name)
         if not target.exists():

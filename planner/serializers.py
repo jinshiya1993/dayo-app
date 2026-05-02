@@ -2,9 +2,9 @@ from django.contrib.auth.models import User
 from rest_framework import serializers
 
 from .models import (
-    ChatConversation, ChatMessage, Child, CustomSectionList,
+    ChatConversation, ChatMessage, CustomSectionList,
     CustomSectionTask, DayPlan, EssentialsCheck,
-    GroceryItem, GroceryList, HouseworkList, HouseworkTask,
+    GroceryItem, GroceryList, HouseholdMember, HouseworkList, HouseworkTask,
     HouseworkTemplate, KidsActivityDay, KidsActivityPlan,
     MealPlan, PlanBlock, Reminder, ScheduleEvent, UserProfile,
 )
@@ -40,15 +40,18 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = [
             'id', 'username', 'email',
-            'user_type', 'display_name', 'timezone',
+            'user_type', 'display_name', 'age', 'timezone',
             'wake_time', 'sleep_time',
             'dietary_restrictions', 'cuisine_preferences', 'custom_cuisines',
+            'secondary_cuisines', 'spice_level',
+            'kids_activity_focus', 'kids_default_difficulty', 'kids_activity_time_pref',
             'breakfast_weight', 'breakfast_types',
             'lunch_weight', 'lunch_types',
             'dinner_weight', 'dinner_types',
             'snack_preferences',
             'planning_modules', 'module_preferences', 'custom_layout',
             'grocery_day', 'exclusions', 'home_help_type',
+            'cooking_responsibility',
             'baby_name', 'baby_date_of_birth', 'is_breastfeeding',
             'had_csection', 'support_type',
             'location_city', 'works_outside_home', 'notes', 'onboarding_complete',
@@ -58,16 +61,17 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 
 # -------------------------------------------------------------------
-# Child
+# HouseholdMember
 # -------------------------------------------------------------------
-class ChildSerializer(serializers.ModelSerializer):
+class HouseholdMemberSerializer(serializers.ModelSerializer):
     age = serializers.IntegerField(read_only=True)
 
     class Meta:
-        model = Child
+        model = HouseholdMember
         fields = [
-            'id', 'name', 'date_of_birth', 'age',
-            'interests', 'school_name', 'notes',
+            'id', 'role', 'name', 'date_of_birth', 'age',
+            'interests', 'school_name', 'notes', 'activity_difficulty',
+            'member_dietary', 'member_health_conditions', 'member_exclusions',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'age', 'created_at', 'updated_at']

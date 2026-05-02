@@ -1,357 +1,199 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { profile as profileApi, sections as sectionsApi, plans } from '../services/api';
+import { profile as profileApi, members as membersApi, plans } from '../services/api';
+
+const ROLE_AVATAR_BG = {
+  partner: '#C97D5A',
+  child: '#C9A84C',
+  helper: '#6B5B95',
+  parent: '#1A1A1A',
+  grandparent: '#1A1A1A',
+  sibling: '#C97D5A',
+  roommate: '#1A1A1A',
+  other: '#1A1A1A',
+};
+
+const ROLE_LABEL = {
+  child: 'Child',
+  partner: 'Partner',
+  parent: 'Parent',
+  grandparent: 'Grandparent',
+  sibling: 'Sibling',
+  helper: 'Helper',
+  roommate: 'Roommate',
+  other: 'Member',
+};
+
+const SPICE_LABELS = {
+  1: { label: 'Mild', emoji: '🥛' },
+  2: { label: 'Light', emoji: '🌿' },
+  3: { label: 'Medium', emoji: '🌶️' },
+  4: { label: 'Hot', emoji: '🌶️🌶️' },
+  5: { label: 'Fire', emoji: '🔥' },
+};
+
+const COOKING_LABEL = {
+  me: 'I cook',
+  helper: 'Our helper',
+  eat_out: 'Mostly order or eat out',
+};
 
 export default function OnboardingPreview() {
   const navigate = useNavigate();
   const location = useLocation();
-  const topRef = useRef(null);
 
-  // Data passed from loading screen
   const { profileData: initialData, name } = location.state || {};
-
   const [profileData, setProfileData] = useState(initialData || {});
-  const [confidence, setConfidence] = useState(initialData?.confidence || {});
-  const [sectionReasons, setSectionReasons] = useState(initialData?.section_reasons || {});
-  const [registry, setRegistry] = useState({});
-  const [layout, setLayout] = useState([]);
-  const [saving, setSaving] = useState(false);
+  const [memberList, setMemberList] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [addOpen, setAddOpen] = useState(false);
-  const [addText, setAddText] = useState('');
-
-  const displayName = name || profileData?.display_name || 'there';
+  const [saving, setSaving] = useState(false);
+  const [stageIdx, setStageIdx] = useState(0);
 
   useEffect(() => {
-    loadData();
+    let cancelled = false;
+    (async () => {
+      const [prof, mems] = await Promise.all([profileApi.get(), membersApi.list()]);
+      if (cancelled) return;
+      if (!prof.error) setProfileData((prev) => ({ ...prev, ...prof }));
+      if (!mems.error && Array.isArray(mems)) setMemberList(mems);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  async function loadData() {
-    setLoading(true);
-    const [prof, reg] = await Promise.all([
-      profileApi.get(),
-      sectionsApi.list(),
-    ]);
+  const loadingStages = buildLoadingStages(profileData, memberList, name);
 
-    if (!prof.error) {
-      setProfileData((prev) => ({ ...prev, ...prof }));
-      if (prof.custom_layout?.length > 0) {
-        setLayout(prof.custom_layout);
-      }
-    }
-    if (!reg.error) setRegistry(reg);
-    setLoading(false);
-  }
-
-  function removeSection(key) {
-    setLayout((prev) => prev.filter((item) => item.key !== key));
-  }
-
-  function addSection(key, label) {
-    if (layout.find((item) => item.key === key)) return;
-    setLayout((prev) => [
-      ...prev,
-      { key, visible: true, locked: false, added_by_user: true, ...(label ? { label } : {}) },
-    ]);
-  }
-
-  function handleAddCustom() {
-    const text = addText.trim();
-    if (!text) return;
-    // Try match against registry first
-    const match = Object.entries(registry).find(
-      ([, meta]) => meta.label?.toLowerCase() === text.toLowerCase()
-    );
-    if (match) {
-      addSection(match[0]);
-    } else {
-      // Cap: max 3 custom sections
-      const customCount = layout.filter(i => i.label || i.added_by_user).length;
-      if (customCount >= 3) return;
-
-      const key = `custom_${text.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}`;
-      addSection(key, text);
-    }
-    setAddText('');
-    setAddOpen(false);
-  }
+  useEffect(() => {
+    if (!saving) { setStageIdx(0); return; }
+    const id = setInterval(() => {
+      setStageIdx((prev) => Math.min(prev + 1, loadingStages.length - 1));
+    }, 2400);
+    return () => clearInterval(id);
+  }, [saving, loadingStages.length]);
 
   async function handleConfirm() {
     setSaving(true);
-    await profileApi.saveLayout(layout);
     await plans.generate();
     navigate('/', { replace: true });
   }
 
-  function scrollToTop() {
-    topRef.current?.scrollIntoView({ behavior: 'smooth' });
+  function goEdit() {
+    navigate('/onboarding/form', { state: { name: profileData.display_name || name } });
   }
-
-  // Available sections not in layout
-  const activeKeys = new Set(layout.map((item) => item.key));
-  const available = Object.entries(registry)
-    .filter(([key]) => !activeKeys.has(key))
-    .map(([key, meta]) => ({ key, ...meta }));
-
-  // Fields that have low or missing confidence
-  const uncertainFields = Object.entries(confidence)
-    .filter(([, v]) => v === 'low' || v === 'missing')
-    .map(([k]) => k);
 
   if (loading) {
-    return <div className="loading"><div className="spinner" />Loading preview...</div>;
+    return <div className="loading"><div className="spinner" />Loading summary...</div>;
   }
 
+  const displayName = profileData.display_name || name || 'You';
+  const isHalal = (profileData.dietary_restrictions || []).some(
+    (d) => d.toLowerCase() === 'halal'
+  );
+
   return (
-    <div className="app-shell" style={{ paddingBottom: 100, animation: 'previewFadeIn 0.5s ease-in' }}>
-      <div ref={topRef} />
-
-      {/* ── 1. Hero Section ───────────────────────────────── */}
-      <div style={{
-        background: '#1a1a1a', padding: '32px 20px 28px',
-        borderRadius: '0 0 20px 20px',
-      }}>
-        <div style={{
-          fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 700,
-          color: 'white', lineHeight: 1.3, marginBottom: 8,
-        }}>
-          Here is what Dayo built for you, {displayName}
-        </div>
-        <div style={{ fontSize: 13, color: '#888', lineHeight: 1.5 }}>
-          Review your dashboard before you start. Remove anything you don't need. Add anything you want.
-        </div>
+    <div style={shellStyle}>
+      <div style={topBarStyle}>
+        <button onClick={() => navigate(-1)} style={backCircleStyle} aria-label="Back">
+          <BackIcon />
+        </button>
+        <span style={{ fontSize: 12, color: '#5A5A5A' }}>Almost there</span>
+        <div style={{ width: 40 }} />
       </div>
 
-      {/* ── 2. Dashboard Sections ─────────────────────────── */}
-      <div style={{ padding: '20px 16px 0' }}>
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          marginBottom: 10,
-        }}>
-          <div>
-            <div style={{ fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 700 }}>Your dashboard sections</div>
-            <div style={{ fontSize: 12, color: '#888' }}>Tap × to remove</div>
-          </div>
+      <div style={contentStyle}>
+        <div style={mockupBodyStyle}>
+          <div style={mockupEyebrowStyle}>Almost there</div>
+          <h1 style={mockupHeadingStyle}>
+            Here's your <em style={mockupHeadingEmStyle}>household</em>, {displayName}
+          </h1>
+          <p style={{ ...mockupSubtitleStyle, marginBottom: 22 }}>
+            Tap edit on anything you'd like to change. Otherwise, let's plan your first week.
+          </p>
         </div>
 
-        {layout.map((item) => {
-          const meta = registry[item.key] || {};
-          const reason = sectionReasons[item.key];
-          const isAiAdded = item.added_by_ai;
-          const label = item.label || meta.label || item.key;
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <SummaryCard
+            avatar={<Avatar letter={initialOf(displayName)} bg="#1A1A1A" />}
+            title={<span>{displayName}<YouTag /></span>}
+            subtitle={profileData.age ? `Adult · ${profileData.age}` : 'Adult'}
+            rows={[
+              ['Diet', summarize(profileData.dietary_restrictions, 'Any')],
+              ['Health', summarize(profileData.health_conditions, 'None')],
+              ['Avoids', summarize(profileData.exclusions, 'None')],
+            ]}
+            onEdit={goEdit}
+          />
 
-          return (
-            <div key={item.key} style={{
-              background: 'white', borderRadius: 14,
-              border: isAiAdded ? '1px solid #E8A87C' : '0.5px solid #EDE8E3',
-              padding: '14px', marginBottom: 8,
-              display: 'flex', alignItems: 'center', gap: 10,
-            }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: 10,
-                background: isAiAdded ? '#FFF8F0' : '#FAF7F5',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 18,
-              }}>
-                {meta.emoji || '📌'}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{label}</div>
-                <div style={{ fontSize: 11, color: reason ? '#C2855A' : '#888', lineHeight: 1.4 }}>
-                  {reason || (isAiAdded ? 'Added by Dayo' : item.added_by_user ? 'Added by you' : meta.subtitle || '')}
-                </div>
-              </div>
-              <button
-                onClick={() => removeSection(item.key)}
-                aria-label="Remove section"
-                style={{
-                  width: 28, height: 28, borderRadius: '50%',
-                  border: '0.5px solid #EDE8E3', background: '#FAF7F5',
-                  color: '#888', fontSize: 16, lineHeight: 1,
-                  cursor: 'pointer', padding: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                ×
-              </button>
-            </div>
-          );
-        })}
-
-        {/* Add more sections — existing registry list */}
-        {available.length > 0 && (
-          <>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 }}>
-              Add more sections
-            </div>
-            {available.slice(0, 4).map((section) => (
-              <div key={section.key} onClick={() => addSection(section.key)} style={{
-                background: 'white', borderRadius: 14, border: '0.5px dashed #EDE8E3',
-                padding: '12px 14px', marginBottom: 8, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 10,
-              }}>
-                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#FAF7F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
-                  {section.emoji || '📌'}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{section.label}</div>
-                  <div style={{ fontSize: 11, color: '#888' }}>{section.subtitle}</div>
-                </div>
-                <span style={{ fontSize: 20, color: '#C2855A', fontWeight: 700 }}>+</span>
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* Add a section — dashed CTA for custom */}
-        {!addOpen ? (
-          <div onClick={() => setAddOpen(true)} style={{
-            background: '#FFF8F0', borderRadius: 14, border: '1px dashed #E8A87C',
-            padding: '14px', marginTop: 4, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 10, background: '#FAEBDD',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 20, color: '#C2855A', fontWeight: 700,
-            }}>
-              +
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, color: '#C2855A' }}>Add a section</div>
-              <div style={{ fontSize: 11, color: '#B58763', lineHeight: 1.4 }}>
-                Ramadan mode · Focus time · Batch cooking · more
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div style={{
-            background: 'white', borderRadius: 14, border: '1px solid #E8A87C',
-            padding: '12px', marginTop: 4,
-          }}>
-            <input
-              autoFocus
-              type="text"
-              value={addText}
-              onChange={(e) => setAddText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleAddCustom();
-                if (e.key === 'Escape') { setAddOpen(false); setAddText(''); }
-              }}
-              placeholder="Name a section..."
-              style={{
-                width: '100%', padding: '10px 12px', fontSize: 14,
-                border: '0.5px solid #EDE8E3', borderRadius: 10,
-                outline: 'none', background: '#FAF7F5',
-                boxSizing: 'border-box',
-              }}
+          {memberList.map((m) => (
+            <SummaryCard
+              key={m.id}
+              avatar={<Avatar letter={initialOf(m.name || ROLE_LABEL[m.role])} bg={ROLE_AVATAR_BG[m.role] || '#1A1A1A'} />}
+              title={m.name || ROLE_LABEL[m.role]}
+              subtitle={memberSubtitle(m)}
+              rows={[
+                m.member_dietary?.length ? ['Diet', summarize(m.member_dietary)] : null,
+                m.member_health_conditions?.length ? ['Health', summarize(m.member_health_conditions)] : null,
+                m.member_exclusions?.length ? ['Avoids', summarize(m.member_exclusions)] : null,
+              ].filter(Boolean)}
+              onEdit={goEdit}
             />
-            {addText.trim() && available.filter((s) =>
-              s.label?.toLowerCase().includes(addText.trim().toLowerCase())
-            ).slice(0, 4).length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                {available
-                  .filter((s) => s.label?.toLowerCase().includes(addText.trim().toLowerCase()))
-                  .slice(0, 4)
-                  .map((section) => (
-                    <div key={section.key} onClick={() => { addSection(section.key); setAddText(''); setAddOpen(false); }} style={{
-                      padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
-                    }}>
-                      <span style={{ fontSize: 16 }}>{section.emoji || '📌'}</span>
-                      <span>{section.label}</span>
-                    </div>
-                  ))}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button
-                onClick={() => { setAddOpen(false); setAddText(''); }}
-                style={{
-                  flex: 1, padding: '10px', borderRadius: 10,
-                  border: '0.5px solid #EDE8E3', background: 'white',
-                  fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddCustom}
-                disabled={!addText.trim()}
-                style={{
-                  flex: 1, padding: '10px', borderRadius: 10, border: 'none',
-                  background: '#C2855A', color: 'white',
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  opacity: addText.trim() ? 1 : 0.5,
-                }}
-              >
-                Add
-              </button>
-            </div>
-          </div>
-        )}
+          ))}
+
+          <SummaryCard
+            avatar={<IconAvatar emoji="🍳" bg="#FFF8F0" />}
+            title="Your kitchen"
+            subtitle="Cuisine & spice"
+            rows={[
+              ['Primary', summarize(profileData.cuisine_preferences, 'Any')],
+              profileData.secondary_cuisines?.length ? ['Occasional', summarize(profileData.secondary_cuisines)] : null,
+              ['Spice', spiceText(profileData.spice_level)],
+              isHalal ? ['Halal', 'Yes'] : null,
+            ].filter(Boolean)}
+            onEdit={goEdit}
+          />
+
+          <SummaryCard
+            avatar={<IconAvatar emoji="🛒" bg="#FAF7F5" />}
+            title="Cooking & shopping"
+            subtitle="How food happens"
+            rows={[
+              ['Cooks', COOKING_LABEL[profileData.cooking_responsibility] || 'I cook'],
+              profileData.grocery_day ? ['Shopping day', profileData.grocery_day] : null,
+            ].filter(Boolean)}
+            onEdit={goEdit}
+          />
+
+          {(profileData.kids_activity_focus?.length || profileData.kids_default_difficulty) && (
+            <SummaryCard
+              avatar={<IconAvatar emoji="🎨" bg="#FFF8F0" />}
+              title="Kids"
+              subtitle="Activity preferences"
+              rows={[
+                profileData.kids_activity_focus?.length
+                  ? ['Focus', summarize(profileData.kids_activity_focus)]
+                  : null,
+                profileData.kids_default_difficulty
+                  ? ['Difficulty', titleCase(profileData.kids_default_difficulty)]
+                  : null,
+              ].filter(Boolean)}
+              onEdit={goEdit}
+            />
+          )}
+        </div>
       </div>
 
-      {/* ── 4. Uncertainty Notice ─────────────────────────── */}
-      {uncertainFields.length > 0 && (
-        <div style={{ padding: '16px' }}>
-          <div style={{
-            background: '#FFF3CD', borderRadius: 14, padding: '14px 16px',
-            border: '0.5px solid #F5E6B8',
-          }}>
-            <div style={{ fontWeight: 600, fontSize: 13, color: '#856404', marginBottom: 6 }}>
-              Some things I'm not sure about
-            </div>
-            {uncertainFields.map((field) => (
-              <div key={field} style={{ fontSize: 12, color: '#856404', padding: '3px 0' }}>
-                • <strong>{field.replace('_', ' ')}</strong>: {confidence[field] === 'missing' ? "You didn't mention this — I'll use a default" : "I estimated this — you can edit it in your profile"}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── 5. Action Buttons ─────────────────────────────── */}
-      <div style={{
-        position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
-        width: '100%', maxWidth: 390,
-        padding: '12px 16px calc(24px + env(safe-area-inset-bottom)) 16px',
-        background: 'white', borderTop: '0.5px solid #EDE8E3',
-      }}>
-        <div style={{
-          fontSize: 11, color: '#888', textAlign: 'center', marginBottom: 8,
-        }}>
-          Want more? Add or remove sections above before continuing.
-        </div>
-        <button onClick={handleConfirm} disabled={saving} style={{
-          width: '100%', padding: '14px', borderRadius: 14, border: 'none',
-          background: '#1a1a1a', color: 'white', fontSize: 15, fontWeight: 600,
-          cursor: 'pointer', marginBottom: 8, opacity: saving ? 0.6 : 1,
-        }}>
-          {saving ? 'Saving...' : "Looks good — show my dashboard"}
+      <div style={footerStyle}>
+        <button onClick={handleConfirm} disabled={saving} style={ctaStyle}>
+          {saving ? 'Creating your plan…' : 'Plan my first week →'}
         </button>
-        <button onClick={scrollToTop} style={{
-          width: '100%', padding: '12px', borderRadius: 14,
-          border: '0.5px solid #EDE8E3', background: 'white',
-          fontSize: 14, fontWeight: 500, cursor: 'pointer', color: '#1a1a1a',
-        }}>
-          Change something first
-        </button>
+        <p style={{ fontSize: 11.5, color: '#9A9A9A', textAlign: 'center', marginTop: 10 }}>
+          You can change everything later in settings.
+        </p>
       </div>
 
-      {/* ── Inline loading overlay while building the dashboard ─── */}
       {saving && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(26,26,26,0.45)',
-          backdropFilter: 'blur(2px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 100, animation: 'overlayFadeIn 0.2s ease-out',
-        }}>
-          <div style={{
-            background: 'white', borderRadius: 16, padding: '28px 36px',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
-            boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
-          }}>
+        <div style={overlayStyle}>
+          <div style={overlayCardStyle}>
             <div style={{ display: 'flex', gap: 6 }}>
               {[0, 1, 2].map((i) => (
                 <div key={i} style={{
@@ -360,27 +202,247 @@ export default function OnboardingPreview() {
                 }} />
               ))}
             </div>
-            <div style={{ fontSize: 14, color: '#1a1a1a', fontWeight: 500 }}>
-              Creating your plan...
+            <div
+              key={stageIdx}
+              style={{
+                fontSize: 14, color: '#1a1a1a', fontWeight: 500,
+                textAlign: 'center', maxWidth: 260, lineHeight: 1.4,
+                animation: 'stageFade 0.4s ease-out',
+              }}
+            >
+              {loadingStages[stageIdx]}
             </div>
           </div>
         </div>
       )}
 
       <style>{`
-        @keyframes previewFadeIn {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes overlayFadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
         @keyframes dotPulse {
           0%, 100% { opacity: 0.3; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.4); }
+        }
+        @keyframes stageFade {
+          from { opacity: 0; transform: translateY(4px); }
+          to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
     </div>
   );
 }
+
+function SummaryCard({ avatar, title, subtitle, rows, onEdit }) {
+  return (
+    <div style={summaryCardStyle}>
+      <div style={summaryHeaderStyle}>
+        {avatar}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={summaryTitleStyle}>{title}</div>
+          <div style={summarySubStyle}>{subtitle}</div>
+        </div>
+        <button onClick={onEdit} style={editPencilStyle} aria-label="Edit">
+          <PencilIcon />
+        </button>
+      </div>
+      {rows.length > 0 && (
+        <div style={summaryBodyStyle}>
+          {rows.map(([label, value]) => (
+            <div key={label} style={summaryRowStyle}>
+              <span style={summaryRowLabelStyle}>{label}</span>
+              <span style={summaryRowValueStyle}>{value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Avatar({ letter, bg }) {
+  return (
+    <div style={{
+      width: 38, height: 38, borderRadius: '50%', background: bg, color: 'white',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'Fraunces, Georgia, serif', fontWeight: 500, fontSize: 14,
+      flexShrink: 0,
+    }}>{letter}</div>
+  );
+}
+
+function IconAvatar({ emoji, bg }) {
+  return (
+    <div style={{
+      width: 38, height: 38, borderRadius: '50%', background: bg,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: 18, flexShrink: 0,
+    }}>{emoji}</div>
+  );
+}
+
+function YouTag() {
+  return (
+    <span style={{
+      display: 'inline-block', background: '#C2855A', color: 'white',
+      fontSize: 9, padding: '2px 6px', borderRadius: 4, marginLeft: 6,
+      letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600,
+      verticalAlign: 'middle',
+    }}>YOU</span>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/>
+    </svg>
+  );
+}
+
+function BackIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 18l-6-6 6-6"/>
+    </svg>
+  );
+}
+
+function initialOf(s) {
+  return (s || '?').trim().charAt(0).toUpperCase() || '?';
+}
+function summarize(arr, fallback = '—') {
+  if (!arr || arr.length === 0) return fallback;
+  return arr.join(' · ');
+}
+function spiceText(level) {
+  const s = SPICE_LABELS[level] || SPICE_LABELS[3];
+  return `${s.emoji} ${s.label} (${level || 3}/5)`;
+}
+function titleCase(s) {
+  return (s || '').charAt(0).toUpperCase() + (s || '').slice(1);
+}
+function memberSubtitle(m) {
+  const role = ROLE_LABEL[m.role] || 'Member';
+  if (m.role === 'helper') return `${role} · also cooks`;
+  if (m.age != null) return `${role} · ${m.age}`;
+  return role;
+}
+
+// Truthful, personalised loading stages shown while the AI builds the
+// first plan. Each stage describes work the backend is genuinely doing.
+function buildLoadingStages(profile, members, fallbackName) {
+  const name = profile.display_name || fallbackName || 'you';
+  const cuisines = profile.cuisine_preferences || [];
+  const primaryCuisine = cuisines[0];
+  const health = profile.health_conditions || [];
+  const exclusions = profile.exclusions || [];
+  const isHalal = (profile.dietary_restrictions || []).some(
+    (d) => d.toLowerCase() === 'halal'
+  );
+
+  const childNames = members
+    .filter((m) => (m.role || 'child') === 'child')
+    .map((m) => m.name)
+    .filter(Boolean);
+  const familyMention = childNames.length > 0
+    ? `${name} and ${childNames.slice(0, 2).join(' & ')}`
+    : `${name}`;
+
+  const stages = [
+    `Reading what you told me about your kitchen…`,
+    primaryCuisine
+      ? `Picking ${primaryCuisine} dishes for ${familyMention}…`
+      : `Picking dishes for ${familyMention}…`,
+  ];
+
+  const constraints = [];
+  if (isHalal) constraints.push('Halal');
+  if (health.length) constraints.push(health[0]);
+  if (exclusions.length) constraints.push(`no ${exclusions[0].toLowerCase()}`);
+  if (constraints.length) {
+    stages.push(`Calibrating to ${constraints.join(', ')}…`);
+  }
+
+  stages.push(`Plating up your week…`);
+  stages.push(`Almost ready…`);
+  return stages;
+}
+
+// ── Styles ──────────────────────────────────────────────────────
+const shellStyle = {
+  display: 'flex', flexDirection: 'column', minHeight: '100dvh',
+  maxWidth: 430, margin: '0 auto', background: '#FAF7F5',
+};
+const topBarStyle = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  padding: '12px 16px',
+};
+const backCircleStyle = {
+  width: 40, height: 40, borderRadius: '50%', background: 'white',
+  border: '1px solid #EDE8E3', display: 'flex', alignItems: 'center',
+  justifyContent: 'center', cursor: 'pointer', color: '#1A1A1A',
+};
+const contentStyle = { flex: 1, padding: '4px 16px 24px' };
+const footerStyle = {
+  position: 'sticky', bottom: 0, padding: '12px 16px calc(20px + env(safe-area-inset-bottom)) 16px',
+  background: '#FAF7F5', borderTop: '0.5px solid #EDE8E3',
+};
+const ctaStyle = {
+  width: '100%', padding: '16px 24px', borderRadius: 999, border: 'none',
+  background: '#C2855A', color: 'white', fontSize: 14.5, fontWeight: 500,
+  cursor: 'pointer',
+};
+const overlayStyle = {
+  position: 'fixed', inset: 0, background: 'rgba(26,26,26,0.45)',
+  backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center',
+  justifyContent: 'center', zIndex: 100,
+};
+const overlayCardStyle = {
+  background: 'white', borderRadius: 16, padding: '28px 36px',
+  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+  boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
+};
+
+const mockupBodyStyle = { padding: '4px 0' };
+const mockupEyebrowStyle = {
+  fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase',
+  color: '#C2855A', fontWeight: 500, marginBottom: 12,
+};
+const mockupHeadingStyle = {
+  fontFamily: 'Fraunces, Georgia, serif', fontWeight: 500, fontSize: 30,
+  lineHeight: 1.1, letterSpacing: '-0.02em', marginBottom: 8, color: '#1A1A1A',
+};
+const mockupHeadingEmStyle = { fontStyle: 'italic', fontWeight: 400, color: '#C2855A' };
+const mockupSubtitleStyle = { color: '#5A5A5A', fontSize: 14, lineHeight: 1.5, maxWidth: 360 };
+
+const summaryCardStyle = {
+  background: 'white', border: '1px solid #E8E3D8', borderRadius: 14,
+  overflow: 'hidden',
+};
+const summaryHeaderStyle = {
+  padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12,
+  background: '#FAF7F5', borderBottom: '1px solid #E8E3D8',
+};
+const summaryTitleStyle = {
+  fontFamily: 'Fraunces, Georgia, serif', fontSize: 14.5, fontWeight: 500,
+  lineHeight: 1.2, color: '#1A1A1A',
+};
+const summarySubStyle = { fontSize: 11, color: '#5A5A5A', marginTop: 1 };
+const summaryBodyStyle = {
+  padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8,
+};
+const summaryRowStyle = {
+  display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start',
+};
+const summaryRowLabelStyle = {
+  fontSize: 11, color: '#9A9A9A', textTransform: 'uppercase',
+  letterSpacing: '0.04em', fontWeight: 500, flexShrink: 0, width: 90, paddingTop: 1,
+};
+const summaryRowValueStyle = {
+  fontSize: 12.5, color: '#1A1A1A', textAlign: 'right', flex: 1, lineHeight: 1.4,
+};
+const editPencilStyle = {
+  width: 26, height: 26, borderRadius: '50%', background: 'transparent',
+  border: '1px solid #E8E3D8', display: 'flex', alignItems: 'center',
+  justifyContent: 'center', cursor: 'pointer', flexShrink: 0, color: '#5A5A5A',
+};

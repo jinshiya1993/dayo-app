@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from . import views
 
 router = DefaultRouter()
-router.register(r'children', views.ChildViewSet, basename='child')
+router.register(r'members', views.HouseholdMemberViewSet, basename='member')
 router.register(r'events', views.ScheduleEventViewSet, basename='event')
 
 urlpatterns = [
@@ -27,7 +27,14 @@ urlpatterns = [
     path('plans/generate/', views.GeneratePlanView.as_view(), name='generate-plan'),
     path('plans/weekly/', views.WeeklyMealsView.as_view(), name='weekly-meals'),
     path('plans/<str:date>/', views.DayPlanDetailView.as_view(), name='day-plan-detail'),
+    # Today timeline
+    path('timeline/today/', views.TodayTimelineView.as_view(), name='timeline-today'),
+    path('timeline/check/', views.TimelineCheckToggleView.as_view(), name='timeline-check'),
+
     path('plans/<str:date>/swap-meal/', views.SwapMealView.as_view(), name='swap-meal'),
+    path('plans/<str:date>/rename-meal/', views.RenameMealView.as_view(), name='rename-meal'),
+    path('plans/<str:date>/extract-ingredients/<str:meal_type>/', views.ExtractIngredientsView.as_view(), name='extract-ingredients'),
+    path('plans/<str:date>/extract-recipe/<str:meal_type>/', views.ExtractRecipeView.as_view(), name='extract-recipe'),
     path('plans/<str:date>/substitute-meal/', views.SubstituteMealView.as_view(), name='substitute-meal'),
     path('plans/<str:date>/change-meal/', views.ChangeMealView.as_view(), name='change-meal'),
 

@@ -1,6 +1,115 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { profile as profileApi } from '../services/api';
+
+const CITIES = [
+  // India — tier 1 & 2 + Kerala focus
+  'Mumbai', 'Delhi', 'Bangalore', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune',
+  'Ahmedabad', 'Jaipur', 'Lucknow', 'Kanpur', 'Nagpur', 'Indore', 'Bhopal',
+  'Patna', 'Vadodara', 'Ghaziabad', 'Ludhiana', 'Coimbatore', 'Agra',
+  'Varanasi', 'Nashik', 'Faridabad', 'Meerut', 'Rajkot', 'Srinagar',
+  'Aurangabad', 'Amritsar', 'Allahabad', 'Ranchi', 'Gwalior', 'Jabalpur',
+  'Vijayawada', 'Jodhpur', 'Madurai', 'Raipur', 'Kota', 'Chandigarh',
+  'Guwahati', 'Mysore', 'Tiruchirappalli', 'Gurgaon', 'Noida',
+  'Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Thrissur', 'Kollam',
+  'Kannur', 'Alappuzha', 'Palakkad',
+  // US
+  'New York', 'Los Angeles', 'Chicago', 'Houston', 'San Francisco', 'Seattle',
+  'Boston', 'Washington DC', 'Miami', 'Atlanta', 'Dallas', 'Austin',
+  // UK
+  'London', 'Manchester', 'Birmingham', 'Edinburgh',
+  // Middle East
+  'Dubai', 'Abu Dhabi', 'Doha', 'Riyadh', 'Jeddah', 'Muscat', 'Kuwait City',
+  // South Asia (neighbours)
+  'Karachi', 'Lahore', 'Islamabad', 'Dhaka', 'Chittagong', 'Kathmandu',
+  'Colombo', 'Kandy', 'Malé',
+  // Southeast Asia
+  'Bangkok', 'Phuket', 'Chiang Mai', 'Pattaya',
+  'Kuala Lumpur', 'Penang', 'Johor Bahru',
+  'Jakarta', 'Bali', 'Surabaya', 'Yogyakarta',
+  'Manila', 'Cebu',
+  'Ho Chi Minh City', 'Hanoi',
+  'Singapore',
+  // East Asia
+  'Tokyo', 'Osaka', 'Kyoto',
+  'Hong Kong', 'Beijing', 'Shanghai', 'Shenzhen',
+  'Seoul', 'Taipei',
+  // Oceania + North America extras
+  'Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Auckland', 'Wellington',
+  'Toronto', 'Vancouver', 'Montreal',
+];
+
+function CityTypeahead({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    function onClickOutside(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  const q = value.trim().toLowerCase();
+  const matches = q
+    ? CITIES.filter((c) => c.toLowerCase().includes(q)).slice(0, 8)
+    : CITIES.slice(0, 8);
+  const showList = open && matches.length > 0;
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative', marginBottom: 14 }}>
+      <input
+        className="auth-input"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="Start typing your city..."
+        autoComplete="off"
+      />
+      {showList && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            background: 'white',
+            border: '0.5px solid #EDE8E3',
+            borderRadius: 12,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
+            maxHeight: 240,
+            overflowY: 'auto',
+            zIndex: 10,
+          }}
+        >
+          {matches.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => { onChange(c); setOpen(false); }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                padding: '10px 14px',
+                border: 'none',
+                background: c.toLowerCase() === q ? '#FFF8F0' : 'white',
+                fontSize: 15,
+                color: '#1a1a1a',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = '#FFF8F0')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = c.toLowerCase() === q ? '#FFF8F0' : 'white')}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
@@ -89,7 +198,7 @@ export default function OnboardingPage() {
         </div>
 
         <label style={labelStyle}>City</label>
-        <input className="auth-input" value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Kochi" style={inputStyle} />
+        <CityTypeahead value={city} onChange={setCity} />
 
         <div style={{ display: 'flex', gap: 8 }}>
           <div style={{ flex: 1 }}><label style={labelStyle}>Wake up</label><input className="auth-input" type="time" value={wakeTime} onChange={(e) => setWakeTime(e.target.value)} style={inputStyle} /></div>

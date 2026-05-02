@@ -1,16 +1,30 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { profile as profileApi, children as childrenApi, auth } from '../services/api';
+import { profile as profileApi, members as membersApi, auth } from '../services/api';
+
+const ROLE_OPTIONS = [
+  { value: 'child', label: 'Child' },
+  { value: 'partner', label: 'Partner' },
+  { value: 'parent', label: 'Parent' },
+  { value: 'grandparent', label: 'Grandparent' },
+  { value: 'sibling', label: 'Sibling' },
+  { value: 'helper', label: 'Helper' },
+  { value: 'roommate', label: 'Roommate' },
+  { value: 'other', label: 'Other' },
+];
+const ROLE_LABEL = Object.fromEntries(ROLE_OPTIONS.map((r) => [r.value, r.label]));
+const EMPTY_MEMBER_FORM = { name: '', date_of_birth: '', role: 'child', interests: '', school_name: '' };
 
 export default function ProfilePage() {
   const navigate = useNavigate();
   const [profileData, setProfileData] = useState(null);
-  const [childList, setChildList] = useState([]);
+  const [memberList, setMemberList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
-  const [showChildForm, setShowChildForm] = useState(false);
-  const [childForm, setChildForm] = useState({ name: '', date_of_birth: '', interests: '', school_name: '' });
+  const [showMemberForm, setShowMemberForm] = useState(false);
+  const [memberForm, setMemberForm] = useState(EMPTY_MEMBER_FORM);
+  const [editingMemberId, setEditingMemberId] = useState(null);
   const [editingModules, setEditingModules] = useState(false);
   const [newModule, setNewModule] = useState('');
 
@@ -20,15 +34,15 @@ export default function ProfilePage() {
 
   async function loadProfile() {
     setLoading(true);
-    const [prof, ch] = await Promise.all([
+    const [prof, ms] = await Promise.all([
       profileApi.get(),
-      childrenApi.list(),
+      membersApi.list(),
     ]);
     if (!prof.error) {
       setProfileData(prof);
       setForm(prof);
     }
-    if (!ch.error) setChildList(Array.isArray(ch) ? ch : []);
+    if (!ms.error && Array.isArray(ms)) setMemberList(ms);
     setLoading(false);
   }
 
@@ -50,22 +64,52 @@ export default function ProfilePage() {
     }
   }
 
-  async function handleAddChild(e) {
+  function openAddMember() {
+    setEditingMemberId(null);
+    setMemberForm(EMPTY_MEMBER_FORM);
+    setShowMemberForm(true);
+  }
+
+  function openEditMember(m) {
+    setEditingMemberId(m.id);
+    setMemberForm({
+      name: m.name || '',
+      date_of_birth: m.date_of_birth || '',
+      role: m.role || 'child',
+      interests: Array.isArray(m.interests) ? m.interests.join(', ') : '',
+      school_name: m.school_name || '',
+    });
+    setShowMemberForm(true);
+  }
+
+  function closeMemberForm() {
+    setShowMemberForm(false);
+    setEditingMemberId(null);
+    setMemberForm(EMPTY_MEMBER_FORM);
+  }
+
+  async function handleSubmitMember(e) {
     e.preventDefault();
-    const data = {
-      ...childForm,
-      interests: childForm.interests ? childForm.interests.split(',').map((s) => s.trim()) : [],
+    const payload = {
+      name: memberForm.name,
+      date_of_birth: memberForm.date_of_birth,
+      role: memberForm.role,
+      interests: memberForm.interests
+        ? memberForm.interests.split(',').map((s) => s.trim()).filter(Boolean)
+        : [],
+      school_name: memberForm.school_name || '',
     };
-    const result = await childrenApi.create(data);
+    const result = editingMemberId
+      ? await membersApi.update(editingMemberId, payload)
+      : await membersApi.create(payload);
     if (!result.error) {
-      setShowChildForm(false);
-      setChildForm({ name: '', date_of_birth: '', interests: '', school_name: '' });
+      closeMemberForm();
       loadProfile();
     }
   }
 
-  async function handleDeleteChild(id) {
-    await childrenApi.delete(id);
+  async function handleDeleteMember(id) {
+    await membersApi.delete(id);
     loadProfile();
   }
 
@@ -233,46 +277,100 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Children */}
+      {/* Family members */}
       <div className="profile-section" style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <div className="profile-section-title" style={{ margin: 0 }}>Children</div>
-          <button className="section-link" onClick={() => setShowChildForm(!showChildForm)}>
-            {showChildForm ? 'Cancel' : '+ Add'}
+          <div className="profile-section-title" style={{ margin: 0 }}>Family</div>
+          <button className="section-link" onClick={() => (showMemberForm ? closeMemberForm() : openAddMember())}>
+            {showMemberForm ? 'Cancel' : '+ Add Member'}
           </button>
         </div>
 
-        {showChildForm && (
-          <form onSubmit={handleAddChild} style={{ marginBottom: 12 }}>
-            <input className="auth-input" placeholder="Child's name" value={childForm.name} onChange={(e) => setChildForm({ ...childForm, name: e.target.value })} required style={{ marginBottom: 8 }} />
-            <input className="auth-input" type="date" value={childForm.date_of_birth} onChange={(e) => setChildForm({ ...childForm, date_of_birth: e.target.value })} required style={{ marginBottom: 8 }} />
-            <input className="auth-input" placeholder="Interests (comma separated)" value={childForm.interests} onChange={(e) => setChildForm({ ...childForm, interests: e.target.value })} style={{ marginBottom: 8 }} />
-            <input className="auth-input" placeholder="School name (optional)" value={childForm.school_name} onChange={(e) => setChildForm({ ...childForm, school_name: e.target.value })} style={{ marginBottom: 8 }} />
-            <button type="submit" className="auth-btn">Add Child</button>
+        {showMemberForm && (
+          <form onSubmit={handleSubmitMember} style={{ marginBottom: 12 }}>
+            <input
+              className="auth-input"
+              placeholder="Name"
+              value={memberForm.name}
+              onChange={(e) => setMemberForm({ ...memberForm, name: e.target.value })}
+              required
+              style={{ marginBottom: 8 }}
+            />
+            <select
+              className="auth-input"
+              value={memberForm.role}
+              onChange={(e) => setMemberForm({ ...memberForm, role: e.target.value })}
+              style={{ marginBottom: 8 }}
+            >
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+            <input
+              className="auth-input"
+              type="date"
+              value={memberForm.date_of_birth}
+              onChange={(e) => setMemberForm({ ...memberForm, date_of_birth: e.target.value })}
+              required
+              style={{ marginBottom: 8 }}
+            />
+            {memberForm.role === 'child' && (
+              <>
+                <input
+                  className="auth-input"
+                  placeholder="Interests (comma separated)"
+                  value={memberForm.interests}
+                  onChange={(e) => setMemberForm({ ...memberForm, interests: e.target.value })}
+                  style={{ marginBottom: 8 }}
+                />
+                <input
+                  className="auth-input"
+                  placeholder="School name (optional)"
+                  value={memberForm.school_name}
+                  onChange={(e) => setMemberForm({ ...memberForm, school_name: e.target.value })}
+                  style={{ marginBottom: 8 }}
+                />
+              </>
+            )}
+            <button type="submit" className="auth-btn">
+              {editingMemberId ? 'Save changes' : 'Add member'}
+            </button>
           </form>
         )}
 
-        {childList.length === 0 && !showChildForm && (
-          <div style={{ color: '#888', fontSize: 13, padding: '8px 0' }}>No children added</div>
+        {memberList.length === 0 && !showMemberForm && (
+          <div style={{ color: '#888', fontSize: 13, padding: '8px 0' }}>No family members added</div>
         )}
 
-        {childList.map((child) => (
-          <div className="profile-field" key={child.id}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{child.name}</div>
-              <div style={{ color: '#888', fontSize: 12 }}>
-                Age {child.age}
-                {child.interests?.length > 0 && ` · ${child.interests.join(', ')}`}
+        {memberList.map((m) => {
+          const roleLabel = ROLE_LABEL[m.role] || (m.role || 'Member');
+          const metaBits = [roleLabel];
+          if (typeof m.age === 'number') metaBits.push(`Age ${m.age}`);
+          if (m.role === 'child' && m.interests?.length > 0) metaBits.push(m.interests.join(', '));
+          return (
+            <div className="profile-field" key={m.id}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{m.name}</div>
+                <div style={{ color: '#888', fontSize: 12 }}>{metaBits.join(' · ')}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  onClick={() => openEditMember(m)}
+                  style={{ border: 'none', background: 'none', color: '#C2855A', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => handleDeleteMember(m.id)}
+                  aria-label={`Delete ${m.name}`}
+                  style={{ border: 'none', background: 'none', color: '#DC3545', cursor: 'pointer', fontSize: 16 }}
+                >
+                  ×
+                </button>
               </div>
             </div>
-            <button
-              onClick={() => handleDeleteChild(child.id)}
-              style={{ border: 'none', background: 'none', color: '#DC3545', cursor: 'pointer', fontSize: 16 }}
-            >
-              ×
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <button className="profile-logout-btn" onClick={handleLogout}>

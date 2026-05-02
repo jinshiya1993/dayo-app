@@ -22,19 +22,19 @@ def get_csrf_token(request):
     return Response({'csrfToken': token})
 
 from .models import (
-    ChatConversation, ChatMessage, Child, CustomSectionDeletionLog,
+    ChatConversation, ChatMessage, CustomSectionDeletionLog,
     CustomSectionList, CustomSectionTask, DayPlan, EssentialsCheck,
     FavouriteMeal, GroceryItem,
-    GroceryList, HouseworkList, HouseworkTask, HouseworkTaskDeletionLog, HouseworkTemplate,
+    GroceryList, HouseholdMember, HouseworkList, HouseworkTask, HouseworkTaskDeletionLog, HouseworkTemplate,
     KidsActivityDay, KidsActivityPlan, MealSwapLog,
-    Reminder, ScheduleEvent, UserPantryItem, UserProfile,
+    Reminder, ScheduleEvent, TodayTimelineCheck, UserPantryItem, UserProfile,
 )
 from .serializers import (
     ChatConversationListSerializer,
     ChatConversationSerializer,
     ChatMessageSerializer,
-    ChildSerializer,
     CustomSectionListSerializer,
+    HouseholdMemberSerializer,
     CustomSectionTaskSerializer,
     DayPlanSerializer,
     EssentialsCheckSerializer,
@@ -168,20 +168,21 @@ class LayoutView(APIView):
 # -------------------------------------------------------------------
 # Children — scoped to the logged-in user's profile
 # -------------------------------------------------------------------
-class ChildViewSet(viewsets.ModelViewSet):
-    serializer_class = ChildSerializer
+class HouseholdMemberViewSet(viewsets.ModelViewSet):
+    serializer_class = HouseholdMemberSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Child.objects.filter(parent=self.request.user.profile)
+        return HouseholdMember.objects.filter(parent=self.request.user.profile)
 
     def perform_create(self, serializer):
         profile = self.request.user.profile
-        serializer.save(parent=profile)
+        member = serializer.save(parent=profile)
 
-        # Make sure the kids_activities section is visible on the dashboard.
-        # Users whose derived layout didn't include it (e.g. homemaker with
-        # no kids at onboarding) need it added when they add their first child.
+        # Make sure the kids_activities section is visible on the dashboard
+        # when the user adds their first CHILD (not a partner/helper/etc.).
+        if member.role != HouseholdMember.Role.CHILD:
+            return
         layout = list(profile.custom_layout or [])
         if not any(item.get('key') == 'kids_activities' for item in layout):
             layout.append({
@@ -278,18 +279,300 @@ class DayPlanDetailView(generics.RetrieveAPIView):
         return DayPlan.objects.filter(profile=self.request.user.profile)
 
     def retrieve(self, request, *args, **kwargs):
-        # Auto-fill meals if running low (< 3 days planned)
+        # Auto-fill meals if running low (< 3 days planned). Don't block
+        # the response on failure but log the traceback so we can see why
+        # generation is failing in server logs.
         try:
             generator = PlanGenerator()
             generator.ensure_meals_ahead(request.user.profile)
         except Exception:
-            pass  # Don't block the response if auto-fill fails
+            logger.exception('DayPlanDetailView.retrieve: ensure_meals_ahead failed')
         return super().retrieve(request, *args, **kwargs)
 
 
 # -------------------------------------------------------------------
 # Meal Actions — swap, substitute, favourite
 # -------------------------------------------------------------------
+class ExtractIngredientsView(APIView):
+    """POST /plans/<date>/extract-ingredients/<meal_type>/
+
+    For old meals saved before we required `ingredients` in the schema.
+    Reads the meal's name + description (+ any steps), asks Gemini to extract
+    a clean ingredient list, persists it onto the meal in plan_data, and
+    returns the updated meal. Idempotent — if ingredients already exist,
+    just returns the meal as-is without hitting Gemini.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, date, meal_type):
+        import json
+        import re
+        from django.conf import settings as django_settings
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        if meal_type not in ('breakfast', 'lunch', 'dinner', 'snack'):
+            return Response({'error': 'meal_type must be breakfast, lunch, dinner, or snack'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            day_plan = DayPlan.objects.get(profile=request.user.profile, date=date)
+        except DayPlan.DoesNotExist:
+            return Response({'error': 'No plan for that date.'}, status=status.HTTP_404_NOT_FOUND)
+
+        plan_data = day_plan.plan_data or {}
+        meals_key = 'mom_meals' if 'mom_meals' in plan_data else 'meals'
+        meal = (plan_data.get(meals_key) or {}).get(meal_type) or {}
+
+        # Already has ingredients? Nothing to do.
+        if isinstance(meal.get('ingredients'), list) and meal['ingredients']:
+            return Response({'meal': meal})
+
+        name = meal.get('name', '').strip()
+        if not name:
+            return Response({'error': 'Meal has no name to extract ingredients from.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        recipe_text_parts = [meal.get('description', '')]
+        if isinstance(meal.get('steps'), list):
+            recipe_text_parts.extend(meal['steps'])
+        recipe_text = '\n'.join(p for p in recipe_text_parts if p).strip()
+
+        llm = ChatGoogleGenerativeAI(
+            model='gemini-2.5-flash',
+            google_api_key=django_settings.GEMINI_API_KEY,
+            temperature=0.2,
+            max_output_tokens=2048,
+            transport='rest',
+        )
+        messages = [
+            SystemMessage(content=(
+                'Extract the ingredient list for a recipe. Return ONLY a JSON object '
+                'of the shape {"ingredients": ["item 1", "item 2", ...]}. '
+                'Each item: short, specific, includes quantity when implied (e.g. '
+                '"200g firm tofu", "2 eggs", "1 cup spinach"). 6-12 items max. '
+                'Keep each item under 8 words. '
+                'NEVER put the word "Halal" in any ingredient name — say '
+                '"chicken broth" not "Halal chicken broth", "soy sauce" not '
+                '"Halal soy sauce". '
+                'No prose, no markdown fences, no extra keys.'
+            )),
+            HumanMessage(content=f'Dish: {name}\n\nRecipe:\n{recipe_text or "(no description provided)"}'),
+        ]
+
+        try:
+            response = llm.invoke(messages)
+        except Exception as e:
+            logger.error(f'extract-ingredients Gemini error: {e}')
+            return Response({'error': 'Could not extract ingredients right now.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        raw = (response.content or '').strip()
+        # Strip markdown fences if Gemini ignored the "no markdown" instruction.
+        fenced = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw, re.DOTALL)
+        if fenced:
+            raw = fenced.group(1)
+        else:
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                raw = match.group(0)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.error(f'extract-ingredients JSON parse failed ({e}): {raw[:300]}')
+            return Response({'error': 'Could not parse ingredients.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        ingredients = data.get('ingredients') or []
+        ingredients = [str(i).strip() for i in ingredients if str(i).strip()]
+        if not ingredients:
+            return Response({'error': 'No ingredients found.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        meal['ingredients'] = ingredients
+        meals_dict = plan_data.get(meals_key) or {}
+        meals_dict[meal_type] = meal
+        plan_data[meals_key] = meals_dict
+        day_plan.plan_data = plan_data
+        day_plan.save(update_fields=['plan_data', 'updated_at'])
+
+        return Response({'meal': meal})
+
+
+class ExtractRecipeView(APIView):
+    """POST /plans/<date>/extract-recipe/<meal_type>/
+
+    Backfills steps + kcal + tags + pairings for old meals saved before
+    the schema required them. Reads the meal's name + description +
+    ingredients along with the user's profile (health conditions) and
+    household (members + their per-member dietary needs), asks Gemini
+    for the missing fields in a single call, persists onto plan_data,
+    returns the updated meal.
+
+    Idempotent — if steps + kcal + tags are all already present, returns
+    the meal as-is without hitting Gemini. Pairings are conditional, so
+    we don't gate on them (would re-fetch every time for simple meals).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, date, meal_type):
+        import json
+        import re
+        from django.conf import settings as django_settings
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        if meal_type not in ('breakfast', 'lunch', 'dinner', 'snack'):
+            return Response({'error': 'meal_type must be breakfast, lunch, dinner, or snack'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            day_plan = DayPlan.objects.get(profile=request.user.profile, date=date)
+        except DayPlan.DoesNotExist:
+            return Response({'error': 'No plan for that date.'}, status=status.HTTP_404_NOT_FOUND)
+
+        plan_data = day_plan.plan_data or {}
+        meals_key = 'mom_meals' if 'mom_meals' in plan_data else 'meals'
+        meal = (plan_data.get(meals_key) or {}).get(meal_type) or {}
+
+        has_steps = isinstance(meal.get('steps'), list) and meal['steps']
+        has_kcal = isinstance(meal.get('kcal'), (int, float)) and meal['kcal']
+        has_tags = isinstance(meal.get('tags'), list) and meal['tags']
+        if has_steps and has_kcal and has_tags:
+            return Response({'meal': meal})
+
+        name = meal.get('name', '').strip()
+        if not name:
+            return Response({'error': 'Meal has no name to extract a recipe from.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        ingredients = meal.get('ingredients') or []
+        ingredients_text = ', '.join(str(i) for i in ingredients) if ingredients else '(none listed)'
+        description = meal.get('description', '') or '(no description)'
+
+        # Build profile + household context so the LLM can drive condition-
+        # aware tags ("PCOS-friendly") and decide when pairings are needed.
+        profile = request.user.profile
+        conditions = profile.health_conditions or []
+        conditions_text = ', '.join(str(c) for c in conditions) if conditions else '(none)'
+
+        members = list(profile.members.all())
+        if members:
+            member_lines = []
+            for m in members:
+                bits = [f'{m.name} ({m.role}, age {m.age})']
+                m_conds = m.member_health_conditions or []
+                if m_conds:
+                    bits.append(f'conditions: {", ".join(str(c) for c in m_conds)}')
+                m_diet = m.member_dietary or []
+                if m_diet:
+                    bits.append(f'dietary: {", ".join(str(d) for d in m_diet)}')
+                member_lines.append(' — '.join(bits))
+            household_text = '\n'.join(f'- {l}' for l in member_lines)
+        else:
+            household_text = '(solo cook, no other members)'
+
+        llm = ChatGoogleGenerativeAI(
+            model='gemini-2.5-flash',
+            google_api_key=django_settings.GEMINI_API_KEY,
+            temperature=0.3,
+            max_output_tokens=2048,
+            transport='rest',
+        )
+        messages = [
+            SystemMessage(content=(
+                'You are filling in missing fields for a recipe. Return ONLY a JSON object of shape:\n'
+                '{\n'
+                '  "steps": ["Step 1", "Step 2", ...],\n'
+                '  "kcal": 320,\n'
+                '  "tags": ["PCOS-friendly", "High protein"],\n'
+                '  "pairings": [{"for": "Sara, Ahmed", "with": "Quinoa pilaf", "why": "low-GI"}]\n'
+                '}\n'
+                'No markdown fences, no extra keys.\n\n'
+                'steps: 4-8 short imperative sentences. Each step = one action.\n'
+                'kcal: integer estimate per single adult serving. Realistic ranges: '
+                'breakfast 250-450, lunch 400-650, dinner 400-700, snack 80-220.\n'
+                'tags: 2-3 SHORT (1-3 word) dietary highlights. Pick from condition tags '
+                '(PCOS-friendly, Diabetic-friendly, Heart-healthy, Anti-inflammatory, Low GI), '
+                'nutrition tags (High protein, Iron-rich, Fiber-rich, Low carb, Healthy fats), '
+                'context tags (Family-friendly, Quick, One-pan, Make-ahead, Comfort), '
+                'recovery tags (Postpartum, Lactation support). '
+                "If the user has health conditions, AT LEAST ONE tag must reflect a condition.\n"
+                'pairings: ONLY include when household members have differing dietary needs '
+                '(child + adult, member with a condition others don\'t share, per-member '
+                'dietary override). Each entry: `for` (real first names), `with` (a SIMPLE side '
+                "— rice, chappathi, salad, yoghurt, fruit; never another recipe), `why` "
+                '(one-line reason). If everyone has identical constraints, return pairings: [].\n'
+                'NEVER use the word "Halal" in any field.'
+            )),
+            HumanMessage(content=(
+                f'Dish: {name}\n'
+                f'Meal type: {meal_type}\n'
+                f'Description: {description}\n'
+                f'Ingredients: {ingredients_text}\n\n'
+                f"User's health conditions: {conditions_text}\n"
+                f'Household members:\n{household_text}\n'
+            )),
+        ]
+
+        try:
+            response = llm.invoke(messages)
+        except Exception as e:
+            logger.error(f'extract-recipe Gemini error: {e}')
+            return Response({'error': 'Could not extract recipe right now.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        raw = (response.content or '').strip()
+        fenced = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw, re.DOTALL)
+        if fenced:
+            raw = fenced.group(1)
+        else:
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                raw = match.group(0)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.error(f'extract-recipe JSON parse failed ({e}): {raw[:300]}')
+            return Response({'error': 'Could not parse recipe.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        steps = [str(s).strip() for s in (data.get('steps') or []) if str(s).strip()]
+        if not steps and not has_steps:
+            return Response({'error': 'No steps found.'}, status=status.HTTP_502_BAD_GATEWAY)
+        if steps:
+            meal['steps'] = steps
+
+        kcal_raw = data.get('kcal')
+        try:
+            kcal_int = int(kcal_raw) if kcal_raw is not None else None
+        except (TypeError, ValueError):
+            kcal_int = None
+        if kcal_int and kcal_int > 0:
+            meal['kcal'] = kcal_int
+
+        tags = [str(t).strip() for t in (data.get('tags') or []) if str(t).strip()]
+        if tags:
+            meal['tags'] = tags[:3]
+
+        # Pairings — only overwrite when LLM returned a non-empty list.
+        # Empty list means "no per-person sides needed", which is a valid
+        # answer; we don't want to clobber a previously good pairings list
+        # with [] just because the LLM decided differently this run.
+        pairings_raw = data.get('pairings')
+        if isinstance(pairings_raw, list) and pairings_raw:
+            cleaned = []
+            for p in pairings_raw:
+                if not isinstance(p, dict):
+                    continue
+                for_v = str(p.get('for', '')).strip()
+                with_v = str(p.get('with', '')).strip()
+                why_v = str(p.get('why', '')).strip()
+                if for_v and with_v:
+                    cleaned.append({'for': for_v, 'with': with_v, 'why': why_v})
+            if cleaned:
+                meal['pairings'] = cleaned
+
+        meals_dict = plan_data.get(meals_key) or {}
+        meals_dict[meal_type] = meal
+        plan_data[meals_key] = meals_dict
+        day_plan.plan_data = plan_data
+        day_plan.save(update_fields=['plan_data', 'updated_at'])
+
+        return Response({'meal': meal})
+
+
 class SwapMealView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -310,8 +593,8 @@ class SwapMealView(APIView):
             meal_type = request.data.get('meal_type')
             date_str = date
 
-            if meal_type not in ('breakfast', 'lunch', 'dinner'):
-                return Response({'error': 'meal_type must be breakfast, lunch, or dinner'}, status=status.HTTP_400_BAD_REQUEST)
+            if meal_type not in ('breakfast', 'lunch', 'dinner', 'snack'):
+                return Response({'error': 'meal_type must be breakfast, lunch, dinner, or snack'}, status=status.HTTP_400_BAD_REQUEST)
 
             day_plan = DayPlan.objects.get(profile=profile, date=date_str)
 
@@ -379,6 +662,133 @@ class SwapMealView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class RenameMealView(APIView):
+    """POST /plans/<date>/rename-meal/
+
+    User-edited meal name from the weekly card. Replaces the meal's name,
+    drops cached ingredients/steps/pairings/tags (they describe the old
+    dish), and asks Gemini for fresh prep_mins + kcal + tags + a short
+    description so the day card has accurate metadata immediately.
+    Ingredients and steps are left unset — RecipePage will lazy-extract
+    them on next open via the existing extract endpoints.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, date):
+        import json
+        import re
+        from django.conf import settings as django_settings
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        meal_type = request.data.get('meal_type')
+        new_name = (request.data.get('name') or '').strip()
+
+        if meal_type not in ('breakfast', 'lunch', 'dinner', 'snack'):
+            return Response({'error': 'meal_type must be breakfast, lunch, dinner, or snack'}, status=status.HTTP_400_BAD_REQUEST)
+        if not new_name:
+            return Response({'error': 'name is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            day_plan = DayPlan.objects.get(profile=request.user.profile, date=date)
+        except DayPlan.DoesNotExist:
+            return Response({'error': 'No plan for that date.'}, status=status.HTTP_404_NOT_FOUND)
+
+        plan_data = day_plan.plan_data or {}
+        meals_key = 'mom_meals' if 'mom_meals' in plan_data else 'meals'
+        meals_dict = plan_data.get(meals_key) or {}
+        meal = dict(meals_dict.get(meal_type) or {})
+
+        if meal.get('name', '').strip().lower() == new_name.lower():
+            return Response({'meal': meal})
+
+        profile = request.user.profile
+        conditions = profile.health_conditions or []
+        conditions_text = ', '.join(str(c) for c in conditions) if conditions else '(none)'
+
+        llm = ChatGoogleGenerativeAI(
+            model='gemini-2.5-flash',
+            google_api_key=django_settings.GEMINI_API_KEY,
+            temperature=0.3,
+            max_output_tokens=512,
+            transport='rest',
+        )
+        messages = [
+            SystemMessage(content=(
+                'You are estimating quick metadata for a renamed meal. Return ONLY a JSON object:\n'
+                '{"prep_mins": 20, "kcal": 420, "description": "Short one-sentence summary", '
+                '"tags": ["High protein", "Quick"]}\n'
+                'No markdown fences, no extra keys.\n'
+                'prep_mins: integer minutes for one cook session.\n'
+                'kcal: integer per single adult serving. Realistic ranges: '
+                'breakfast 250-450, lunch 400-650, dinner 400-700, snack 80-220.\n'
+                'description: one short sentence describing the dish.\n'
+                'tags: 2-3 SHORT (1-3 word) dietary highlights. If the user has health '
+                'conditions, AT LEAST ONE tag must reflect a condition '
+                '(PCOS-friendly, Diabetic-friendly, Heart-healthy, Anti-inflammatory, Low GI).\n'
+                'NEVER use the word "Halal".'
+            )),
+            HumanMessage(content=(
+                f'Dish: {new_name}\n'
+                f'Meal type: {meal_type}\n'
+                f"User's health conditions: {conditions_text}\n"
+            )),
+        ]
+
+        try:
+            response = llm.invoke(messages)
+        except Exception as e:
+            logger.error(f'rename-meal Gemini error: {e}')
+            return Response({'error': 'Could not refresh meal details right now.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        raw = (response.content or '').strip()
+        fenced = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw, re.DOTALL)
+        if fenced:
+            raw = fenced.group(1)
+        else:
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                raw = match.group(0)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.error(f'rename-meal JSON parse failed ({e}): {raw[:300]}')
+            data = {}
+
+        new_meal = {'name': new_name}
+
+        prep_raw = data.get('prep_mins')
+        try:
+            prep_int = int(prep_raw) if prep_raw is not None else None
+        except (TypeError, ValueError):
+            prep_int = None
+        if prep_int and prep_int > 0:
+            new_meal['prep_mins'] = prep_int
+
+        kcal_raw = data.get('kcal')
+        try:
+            kcal_int = int(kcal_raw) if kcal_raw is not None else None
+        except (TypeError, ValueError):
+            kcal_int = None
+        if kcal_int and kcal_int > 0:
+            new_meal['kcal'] = kcal_int
+
+        desc = (data.get('description') or '').strip()
+        if desc:
+            new_meal['description'] = desc
+
+        tags = [str(t).strip() for t in (data.get('tags') or []) if str(t).strip()]
+        if tags:
+            new_meal['tags'] = tags[:3]
+
+        meals_dict[meal_type] = new_meal
+        plan_data[meals_key] = meals_dict
+        day_plan.plan_data = plan_data
+        day_plan.save(update_fields=['plan_data', 'updated_at'])
+
+        return Response({'meal': new_meal})
+
+
 class SubstituteMealView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -396,8 +806,8 @@ class SubstituteMealView(APIView):
         missing_ingredient = request.data.get('ingredient', '').strip()
         date_str = date
 
-        if meal_type not in ('breakfast', 'lunch', 'dinner'):
-            return Response({'error': 'meal_type must be breakfast, lunch, or dinner'}, status=status.HTTP_400_BAD_REQUEST)
+        if meal_type not in ('breakfast', 'lunch', 'dinner', 'snack'):
+            return Response({'error': 'meal_type must be breakfast, lunch, dinner, or snack'}, status=status.HTTP_400_BAD_REQUEST)
         if not missing_ingredient:
             return Response({'error': 'ingredient is required'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -511,27 +921,63 @@ class WeeklyMealsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """Get meals for the next 7 days from existing day plans."""
+        """Get meals for the next 7 days from existing day plans.
+
+        Returns full meal objects (name, prep_mins, kcal, tags, ingredients,
+        steps) plus the day's meal_health_banner so the inline weekly UI
+        can render rich cards without hitting the per-day plan endpoint.
+
+        Auto-fills missing days via ensure_meals_ahead so direct visits to
+        the weekly page (without first loading the dashboard) still work.
+        """
         from datetime import date, timedelta
         profile = request.user.profile
+
+        # Mirrors the auto-fill behavior of DayPlanDetailView.retrieve().
+        # No-op if the week is already planned. Don't block the response on
+        # failure but log the full traceback so server logs surface why
+        # generation is failing instead of silently returning empty days.
+        try:
+            generator = PlanGenerator()
+            generator.ensure_meals_ahead(profile)
+        except Exception:
+            logger.exception('WeeklyMealsView: ensure_meals_ahead failed')
+
         today = date.today()
         days = []
+
+        def _meal_summary(m):
+            if not isinstance(m, dict):
+                return None
+            return {
+                'name': m.get('name', ''),
+                'prep_mins': m.get('prep_mins'),
+                'kcal': m.get('kcal'),
+                'tags': m.get('tags') or [],
+                'ingredients': m.get('ingredients') or [],
+                'steps': m.get('steps') or [],
+                'description': m.get('description', ''),
+                'pairings': m.get('pairings') or [],
+            }
 
         for i in range(7):
             d = today + timedelta(days=i)
             plan = DayPlan.objects.filter(profile=profile, date=d, status='ready').first()
-            meals = {}
+            meals_raw = {}
+            banner = ''
             if plan and plan.plan_data:
-                meals = plan.plan_data.get('meals') or plan.plan_data.get('mom_meals') or {}
+                meals_raw = plan.plan_data.get('meals') or plan.plan_data.get('mom_meals') or {}
+                banner = plan.plan_data.get('meal_health_banner') or ''
             days.append({
                 'date': str(d),
                 'day_name': d.strftime('%A'),
                 'is_today': i == 0,
                 'has_plan': plan is not None,
+                'meal_health_banner': banner,
                 'meals': {
-                    'breakfast': meals.get('breakfast', {}).get('name', '') if isinstance(meals.get('breakfast'), dict) else '',
-                    'lunch': meals.get('lunch', {}).get('name', '') if isinstance(meals.get('lunch'), dict) else '',
-                    'dinner': meals.get('dinner', {}).get('name', '') if isinstance(meals.get('dinner'), dict) else '',
+                    'breakfast': _meal_summary(meals_raw.get('breakfast')),
+                    'lunch': _meal_summary(meals_raw.get('lunch')),
+                    'dinner': _meal_summary(meals_raw.get('dinner')),
                 },
             })
         return Response(days)
@@ -564,8 +1010,8 @@ class ChangeMealView(APIView):
         user_request = request.data.get('request', '').strip()
         date_str = date  # URL parameter
 
-        if meal_type not in ('breakfast', 'lunch', 'dinner'):
-            return Response({'error': 'meal_type must be breakfast, lunch, or dinner'}, status=status.HTTP_400_BAD_REQUEST)
+        if meal_type not in ('breakfast', 'lunch', 'dinner', 'snack'):
+            return Response({'error': 'meal_type must be breakfast, lunch, dinner, or snack'}, status=status.HTTP_400_BAD_REQUEST)
         if not user_request:
             return Response({'error': 'request is required'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1009,6 +1455,204 @@ class GroceryItemDeleteView(APIView):
 
         item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ===================================================================
+# Today timeline
+# ===================================================================
+
+# Default times when a meal object doesn't carry its own. Match the
+# constants used on the frontend so order of operations is consistent.
+_DEFAULT_MEAL_TIMES = {
+    'breakfast': '07:00',
+    'lunch': '13:00',
+    'snack': '17:00',
+    'dinner': '19:00',
+}
+
+
+def _event_active_today(ev, today):
+    """Return True if a ScheduleEvent should appear on today's timeline."""
+    if not ev.is_active:
+        return False
+    py_day = today.weekday()  # Mon=0 … Sun=6
+    rec = ev.recurrence
+    if rec == 'none':
+        return ev.event_date == today if ev.event_date else True
+    if rec == 'daily':
+        return True
+    if rec == 'weekdays':
+        return py_day < 5
+    if rec in ('weekly', 'custom'):
+        return py_day in (ev.recurrence_days or [])
+    return False
+
+
+def _build_timeline_items(profile, target_date):
+    """Aggregate today's items from meals, schedule events, class alerts,
+    selfcare, and grocery. Each item carries a stable item_key so checks can
+    be looked up. Items are returned sorted by time (HH:MM lexicographic)."""
+
+    items = []
+
+    # ── Meals from DayPlan ───────────────────────────────────────
+    day_plan = DayPlan.objects.filter(profile=profile, date=target_date).first()
+    plan_data = (day_plan.plan_data if day_plan else None) or {}
+    meals = plan_data.get('meals') or plan_data.get('mom_meals') or {}
+
+    for meal_type in ('breakfast', 'lunch', 'snack', 'dinner'):
+        meal = meals.get(meal_type)
+        if not isinstance(meal, dict) or not meal.get('name'):
+            continue
+        time = meal.get('time') or _DEFAULT_MEAL_TIMES.get(meal_type, '12:00')
+        prep = meal.get('prep_mins')
+        kcal = meal.get('kcal')
+        sub_bits = []
+        if prep:
+            sub_bits.append(f'{prep} min')
+        if kcal:
+            sub_bits.append(f'{kcal} kcal')
+        items.append({
+            'item_key': f'meal:{meal_type}',
+            'kind': 'meal',
+            'meal_type': meal_type,
+            'time': time,
+            'title': f'{meal_type.title()} — {meal["name"]}',
+            'subtitle': ' · '.join(sub_bits),
+        })
+
+    # ── Class alerts (JSON inside plan_data) ─────────────────────
+    for alert in plan_data.get('class_alerts') or []:
+        if not isinstance(alert, dict):
+            continue
+        time = (alert.get('time') or '').strip()
+        title_bits = [str(p) for p in (alert.get('class'), alert.get('child')) if p]
+        title = ' — '.join(title_bits) or 'Class alert'
+        sub_bits = []
+        if alert.get('leave_by'):
+            sub_bits.append(f"leave by {alert['leave_by']}")
+        if alert.get('location'):
+            sub_bits.append(alert['location'])
+        items.append({
+            'item_key': f'class:{time}' if time else f'class:{title.lower()[:30]}',
+            'kind': 'class',
+            'time': time,
+            'title': title,
+            'subtitle': ' · '.join(sub_bits),
+        })
+
+    # ── Self-care (object or list inside plan_data) ──────────────
+    selfcare_raw = plan_data.get('selfcare')
+    selfcare_items = selfcare_raw if isinstance(selfcare_raw, list) else (
+        [selfcare_raw] if isinstance(selfcare_raw, dict) else []
+    )
+    for sc in selfcare_items:
+        if not isinstance(sc, dict):
+            continue
+        time = (sc.get('time') or '').strip()
+        activity = sc.get('activity') or 'Self-care time'
+        sub = sc.get('duration') or ''
+        items.append({
+            'item_key': f'selfcare:{time}' if time else f'selfcare:{activity.lower()[:30]}',
+            'kind': 'selfcare',
+            'time': time,
+            'title': activity,
+            'subtitle': sub,
+        })
+
+    # ── Schedule events (recurring + one-off) ────────────────────
+    for ev in ScheduleEvent.objects.filter(profile=profile, is_active=True):
+        if not _event_active_today(ev, target_date):
+            continue
+        time = ev.start_time.strftime('%H:%M') if ev.start_time else ''
+        sub_bits = []
+        if ev.location:
+            sub_bits.append(ev.location)
+        if ev.travel_time_minutes:
+            sub_bits.append(f'travel {ev.travel_time_minutes}m')
+        items.append({
+            'item_key': f'event:{ev.id}',
+            'kind': _event_kind(ev.event_type),
+            'time': time,
+            'title': ev.title,
+            'subtitle': ' · '.join(sub_bits),
+        })
+
+    # ── Grocery checkpoint (if generated today) ──────────────────
+    grocery = GroceryList.objects.filter(profile=profile).order_by('-generated_at').first()
+    if grocery and grocery.generated_at.date() == target_date:
+        item_count = grocery.items.count() if hasattr(grocery, 'items') else 0
+        items.append({
+            'item_key': 'grocery:ready',
+            'kind': 'grocery',
+            'time': grocery.generated_at.strftime('%H:%M'),
+            'title': 'Grocery list ready',
+            'subtitle': f'{item_count} items' if item_count else '',
+        })
+
+    items.sort(key=lambda it: it.get('time') or '99:99')
+    return items
+
+
+def _event_kind(event_type):
+    """Group ScheduleEvent.event_type into a small set of icon kinds."""
+    if event_type in ('school_drop', 'school_pick', 'child_activity'):
+        return 'school'
+    if event_type in ('meeting', 'work_shift'):
+        return 'work'
+    if event_type in ('class', 'study', 'exam', 'assignment_due'):
+        return 'study'
+    return 'event'
+
+
+class TodayTimelineView(APIView):
+    """GET /api/v1/timeline/today/ — returns today's aggregated timeline
+    plus the list of item_keys the user has already checked."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile = request.user.profile
+        today = date.today()
+
+        items = _build_timeline_items(profile, today)
+        checks = list(
+            TodayTimelineCheck.objects.filter(
+                profile=profile, date=today, completed=True,
+            ).values_list('item_key', flat=True)
+        )
+
+        return Response({
+            'date': today.isoformat(),
+            'items': items,
+            'checked_keys': checks,
+        })
+
+
+class TimelineCheckToggleView(APIView):
+    """POST /api/v1/timeline/check/ — body {item_key, completed}.
+    Idempotent upsert into TodayTimelineCheck for the current date."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        item_key = (request.data.get('item_key') or '').strip()
+        if not item_key:
+            return Response({'error': 'item_key is required'}, status=status.HTTP_400_BAD_REQUEST)
+        completed = bool(request.data.get('completed', True))
+
+        profile = request.user.profile
+        today = date.today()
+
+        if completed:
+            TodayTimelineCheck.objects.update_or_create(
+                profile=profile, date=today, item_key=item_key,
+                defaults={'completed': True, 'completed_at': timezone.now()},
+            )
+        else:
+            TodayTimelineCheck.objects.filter(
+                profile=profile, date=today, item_key=item_key,
+            ).delete()
+
+        return Response({'item_key': item_key, 'completed': completed})
 
 
 # ===================================================================
@@ -1655,6 +2299,11 @@ def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_use
     )
 
     profile.display_name = display_name
+    if data.get('age') is not None:
+        try:
+            profile.age = int(data['age']) or None
+        except (TypeError, ValueError):
+            pass
 
     explicit_user_type = data.get('user_type') or fallback_user_type
     if 'works_outside_home' in data:
@@ -1665,6 +2314,20 @@ def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_use
     profile.health_conditions = data.get('health_conditions', [])
     profile.family_size = data.get('family_size', 1)
     profile.cuisine_preferences = data.get('cuisine_preferences', [])
+    profile.secondary_cuisines = data.get('secondary_cuisines', [])
+    if data.get('spice_level') is not None:
+        try:
+            level = int(data['spice_level'])
+            if 1 <= level <= 5:
+                profile.spice_level = level
+        except (TypeError, ValueError):
+            pass
+
+    profile.kids_activity_focus = data.get('kids_activity_focus', [])
+    if data.get('kids_default_difficulty') is not None:
+        profile.kids_default_difficulty = data.get('kids_default_difficulty', '') or ''
+    if data.get('kids_activity_time_pref') is not None:
+        profile.kids_activity_time_pref = data.get('kids_activity_time_pref', '') or ''
     profile.breakfast_weight = data.get('breakfast_weight', 'light')
     profile.breakfast_types = data.get('breakfast_types', [])
     profile.lunch_weight = data.get('lunch_weight', 'heavy')
@@ -1674,6 +2337,7 @@ def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_use
     profile.snack_preferences = data.get('snack_preferences', [])
     profile.planning_modules = data.get('planning_modules', [])
     profile.grocery_day = data.get('grocery_day', 'Saturday')
+    profile.cooking_responsibility = data.get('cooking_responsibility', 'me')
     profile.exclusions = data.get('exclusions', [])
     profile.notes = data.get('notes', '')
     profile.module_preferences = data.get('module_preferences', {})
@@ -1681,18 +2345,23 @@ def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_use
     # because both depend on the children's age bands.
     profile.save()
 
-    # Children. Missing age → skip (we can't plan without it). Missing name
-    # but known age → save as "Child N" placeholder; user can rename later.
-    for idx, child_data in enumerate(data.get('children', []), start=1):
-        name = (child_data.get('name') or '').strip()
-        age = child_data.get('age', 0)
-        age_months = child_data.get('age_months', 0)
+    # Household members. Backwards-compat: payloads using `children` are
+    # treated as children. New payloads use `members` with explicit roles.
+    raw_members = data.get('members')
+    if raw_members is None:
+        raw_members = [{**c, 'role': 'child'} for c in data.get('children', [])]
+
+    for idx, member_data in enumerate(raw_members, start=1):
+        name = (member_data.get('name') or '').strip()
+        age = member_data.get('age', 0)
+        age_months = member_data.get('age_months', 0)
+        role = member_data.get('role') or 'child'
 
         if not age and not age_months:
             continue
 
         if not name:
-            name = f'Child {idx}'
+            name = f'Child {idx}' if role == 'child' else f'{role.title()} {idx}'
 
         today = date.today()
         if age_months and age_months > 0:
@@ -1707,12 +2376,16 @@ def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_use
             age_int = max(0, int(float(age)))
             dob = date(today.year - age_int, 1, 1)
 
-        Child.objects.create(
+        HouseholdMember.objects.create(
             parent=profile,
+            role=role,
             name=name,
             date_of_birth=dob,
-            interests=child_data.get('interests', []),
-            school_name=child_data.get('school_name', ''),
+            interests=member_data.get('interests', []),
+            school_name=member_data.get('school_name', ''),
+            member_dietary=member_data.get('member_dietary', []),
+            member_health_conditions=member_data.get('member_health_conditions', []),
+            member_exclusions=member_data.get('member_exclusions', []),
         )
 
     for event_data in data.get('schedule_events', []):
@@ -1720,7 +2393,7 @@ def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_use
             child = None
             child_name = event_data.get('child_name', '')
             if child_name:
-                child = profile.children.filter(name__icontains=child_name).first()
+                child = profile.members.filter(role='child', name__icontains=child_name).first()
 
             ScheduleEvent.objects.create(
                 profile=profile,
@@ -1736,7 +2409,7 @@ def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_use
     # Now that children exist, derive user_type and compose the dashboard
     # layout from the actual data. If the caller explicitly set a
     # user_type (chat flow), honour it — otherwise derive from data.
-    children_qs = list(profile.children.all())
+    children_qs = list(profile.members.filter(role='child'))
     if explicit_user_type:
         profile.user_type = explicit_user_type
     else:
@@ -1826,7 +2499,7 @@ class GenerateKidsActivitiesView(APIView):
     def post(self, request):
         profile = request.user.profile
         # Ages 2-12 qualify (2-3 gets a story-only pack; teens don't get one).
-        if not any(2 <= c.age < 13 for c in profile.children.all()):
+        if not any(2 <= m.age < 13 for m in profile.members.filter(role='child')):
             return Response(
                 {'error': 'Activities are for children aged 2 through 12.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1873,7 +2546,7 @@ class CurrentKidsActivitiesView(APIView):
 
         # Ages 2-12 qualify for an activity pack (2-3 gets story-only;
         # teens aren't served by this section).
-        has_children = any(2 <= c.age < 13 for c in profile.children.all())
+        has_children = any(2 <= m.age < 13 for m in profile.members.filter(role='child'))
 
         if not plan and has_children:
             try:

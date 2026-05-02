@@ -58,7 +58,11 @@ export default function ChatPage() {
   useEffect(() => {
     loadConversations();
     profileApi.get().then(res => { if (!res.error) setProfileData(res); });
-    childrenApi.list().then(res => { if (!res.error && Array.isArray(res)) setChildList(res); });
+    childrenApi.list().then(res => {
+      if (!res.error && Array.isArray(res)) {
+        setChildList(res.filter(m => (m.role || 'child') === 'child'));
+      }
+    });
   }, []);
 
   useEffect(() => {

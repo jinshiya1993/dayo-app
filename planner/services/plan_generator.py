@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 HOMEMAKER_JSON = """{
   "user_type": "homemaker",
   "meals": {
-    "breakfast": {"name": "Meal name", "prep_mins": 20, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},
-    "lunch":     {"name": "Meal name", "prep_mins": 35, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},
-    "dinner":    {"name": "Meal name", "prep_mins": 40, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},
-    "snacks":    ["Snack item 1", "Snack item 2"]
+    "breakfast": {"name": "Meal name", "prep_mins": 20, "kcal": 320, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["High protein", "PCOS-friendly"], "pairings": [{"for": "Kid name", "with": "Toast with butter", "why": "easy, kid-friendly"}]},
+    "lunch":     {"name": "Meal name", "prep_mins": 35, "kcal": 520, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["Family-friendly", "Low GI"], "pairings": [{"for": "Kid name", "with": "Plain rice", "why": "simpler for kids"}]},
+    "dinner":    {"name": "Meal name", "prep_mins": 40, "kcal": 580, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["High protein", "Family-friendly"], "pairings": [{"for": "Kid name", "with": "Plain chappathi", "why": "easy, kid-friendly"}]},
+    "snack":     {"name": "Single snack dish (no lists)", "prep_mins": 5, "kcal": 180, "description": "Brief one-line description", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2"], "tags": ["Quick", "Fiber-rich"], "pairings": [{"for": "Kid name", "with": "Apple slices", "why": "easier for kids"}]}
   },
   "class_alerts": [
     {"child": "Child name", "class": "Class name", "time": "17:00", "leave_by": "16:30", "location": "Place"}
@@ -51,10 +51,10 @@ WORKING_MOM_JSON = """{
     {"child": "Child name", "class": "Class name", "time": "17:00", "leave_by": "16:30"}
   ],
   "meals": {
-    "breakfast": {"name": "Meal name", "prep_mins": 10, "description": "Quick description", "ingredients": ["ingredient 1", "ingredient 2"]},
-    "lunch":     {"name": "Meal name", "prep_mins": 5, "description": "Packed or ordered", "ingredients": ["ingredient 1", "ingredient 2"]},
-    "dinner":    {"name": "Meal name", "prep_mins": 30, "description": "Quick description", "ingredients": ["ingredient 1", "ingredient 2"]},
-    "snacks":    ["Snack 1", "Snack 2"]
+    "breakfast": {"name": "Meal name", "prep_mins": 10, "kcal": 320, "description": "Quick description", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["High protein", "Quick"], "pairings": [{"for": "Kid name", "with": "Toast with jam", "why": "easy, kid-friendly"}]},
+    "lunch":     {"name": "Meal name", "prep_mins": 5, "kcal": 520, "description": "Packed or ordered", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["Office-friendly", "Balanced"], "pairings": [{"for": "Kid name", "with": "Plain rice", "why": "simpler for kids"}]},
+    "dinner":    {"name": "Meal name", "prep_mins": 30, "kcal": 580, "description": "Quick description", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["Family-friendly", "Quick"], "pairings": [{"for": "Kid name", "with": "Plain chappathi", "why": "easy, kid-friendly"}]},
+    "snack":     {"name": "Single snack dish (no lists)", "prep_mins": 5, "kcal": 180, "description": "Brief one-line description", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2"], "tags": ["Quick", "Office-friendly"], "pairings": [{"for": "Kid name", "with": "Apple slices", "why": "easier for kids"}]}
   },
   "kids_activities": [
     {"child": "Child name", "age": 3, "activity": "Activity name", "duration": "30 mins", "when": "after school", "materials": ["item1"]}
@@ -80,10 +80,10 @@ NEW_MOM_JSON = """{
   "morning_greeting": "1-2 sentence warm personalised greeting for the mom based on her situation",
   "meal_health_banner": "A warm one-line note about recovery nutrition — never about weight or aesthetics",
   "meals": {
-    "breakfast": {"name": "Meal name", "prep_mins": 5, "description": "One-hand friendly recipe", "ingredients": ["ingredient 1", "ingredient 2"]},
-    "lunch":     {"name": "Meal name", "prep_mins": 10, "description": "Quick and nutritious", "ingredients": ["ingredient 1", "ingredient 2"]},
-    "dinner":    {"name": "Meal name", "prep_mins": 20, "description": "Prep during nap time", "ingredients": ["ingredient 1", "ingredient 2"]},
-    "snacks":    ["Snack 1", "Snack 2", "Snack 3"]
+    "breakfast": {"name": "Meal name", "prep_mins": 5, "kcal": 320, "description": "One-hand friendly recipe", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["Postpartum recovery", "Lactation support"], "pairings": [{"for": "Partner/older kid name", "with": "Toast with butter", "why": "easy companion"}]},
+    "lunch":     {"name": "Meal name", "prep_mins": 10, "kcal": 480, "description": "Quick and nutritious", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["Iron-rich", "Quick"], "pairings": [{"for": "Partner/older kid name", "with": "Plain rice", "why": "simpler companion"}]},
+    "dinner":    {"name": "Meal name", "prep_mins": 20, "kcal": 540, "description": "Prep during nap time", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["Comfort", "Iron-rich"], "pairings": [{"for": "Partner/older kid name", "with": "Plain chappathi", "why": "easy companion"}]},
+    "snack":     {"name": "Single snack dish (no lists)", "prep_mins": 3, "kcal": 200, "description": "One-hand friendly snack", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2"], "tags": ["Lactation support", "Quick"], "pairings": [{"for": "Partner/older kid name", "with": "Apple slices", "why": "easier companion"}]}
   },
   "exercise": {"activity": "Activity name", "time": "10:00", "duration": "15 mins", "note": "Encouraging note about recovery"},
   "selfcare": [
@@ -111,11 +111,23 @@ JSON_TEMPLATES = {
 class PlanGenerator:
 
     def __init__(self):
+        # Daily plans fit comfortably in 8K tokens. Weekly meals (7 days
+        # of breakfast/lunch/dinner with steps, ingredients, tags, kcal,
+        # pairings) regularly run 25–40K characters, so the weekly call
+        # uses a separate client with a higher cap. Keep both at the same
+        # temperature so meal style stays consistent.
         self.llm = ChatGoogleGenerativeAI(
             model='gemini-2.5-flash',
             google_api_key=settings.GEMINI_API_KEY,
             temperature=0.7,
             max_output_tokens=8192,
+            transport='rest',
+        )
+        self.weekly_llm = ChatGoogleGenerativeAI(
+            model='gemini-2.5-flash',
+            google_api_key=settings.GEMINI_API_KEY,
+            temperature=0.7,
+            max_output_tokens=32768,
             transport='rest',
         )
 
@@ -166,7 +178,7 @@ class PlanGenerator:
 
         logger.info(f'Weekly meals: requesting {num_days} days from {start_date}')
         try:
-            response = self.llm.invoke(messages)
+            response = self.weekly_llm.invoke(messages)
             raw_content = response.content
             weekly_data = self._parse_response(raw_content)
 
@@ -224,11 +236,11 @@ class PlanGenerator:
             logger.info(f'Weekly meals: saved {len(created_plans)} days, skipped {skipped}')
             return created_plans
 
-        except json.JSONDecodeError as e:
-            logger.error(f'Failed to parse weekly meals JSON: {e}')
+        except json.JSONDecodeError:
+            logger.exception('Failed to parse weekly meals JSON')
             return []
-        except Exception as e:
-            logger.error(f'Weekly meal generation failed: {e}')
+        except Exception:
+            logger.exception('Weekly meal generation failed')
             return []
 
     def ensure_meals_ahead(self, profile, min_days=3, total_days=7):
@@ -335,7 +347,27 @@ class PlanGenerator:
             "- ALWAYS use English names for dishes. If the dish has a local name, write the English translation. e.g. 'Red Lentil Soup' not 'Mercimek Çorbası', 'Scrambled Eggs with Vegetables' not 'Menemen'\n"
             "- Each day gets a different meal_health_banner (warm, caring, under 20 words)\n"
             "  If NO health conditions, set banner to empty string\n"
-            "- Keep ALL descriptions under 15 words\n\n"
+            "- Keep ALL descriptions under 15 words\n"
+            "- COOKING STEPS: every meal MUST include a `steps` array of 4-8 short imperative sentences.\n"
+            "  Each step is one action: 'Marinate the chicken with yogurt and spices', 'Heat oil in a pan over medium heat', etc. No numbering — just sentences.\n"
+            "- KCAL: every meal MUST include a `kcal` integer — approximate calories per serving (a single adult portion). Realistic ranges: breakfast 250-450, lunch 400-650, dinner 400-700, snack 80-220.\n"
+            "- SNACK: emit exactly ONE snack as a single dish object. The `name` must be ONE concrete item (e.g. 'Roasted chana with peanuts', 'Apple slices with peanut butter') — NEVER a list, NEVER multiple items joined by '•' or commas.\n"
+            "- TAGS: every meal MUST include a `tags` array of 2-3 SHORT (1-3 word) dietary highlights.\n"
+            "  Pick from: condition tags (PCOS-friendly, Diabetic-friendly, Heart-healthy, Anti-inflammatory, Low GI), nutrition tags (High protein, Iron-rich, Fiber-rich, Low carb, Healthy fats), context tags (Family-friendly, Quick, One-pan, Make-ahead, Comfort), recovery tags (Postpartum, Lactation support).\n"
+            "  Drive at least one tag from the user's health conditions/goals. Example: PCOS user → 'PCOS-friendly' or 'Low GI' on every meal.\n"
+            "- PER-PERSON SIDE PAIRINGS — REQUIRED on EVERY meal (breakfast, lunch, snack, AND dinner) when household members have differing dietary needs. Do NOT emit pairings only on dinner — emit on all four meals.\n"
+            "  TRIGGER CONDITIONS (ANY one means you MUST emit `pairings`):\n"
+            "    • A member has a health condition the others don't (e.g. diabetes, PCOS, cholesterol)\n"
+            "    • A child member exists alongside adults — kids almost always want a simpler/familiar side\n"
+            "    • A member has a per-member dietary or exclusion override\n"
+            "  Each pairing entry: `for` (real first names from the household), `with` (the simple side), `why` (one-line reason).\n"
+            "  Sides MUST be SIMPLE assemblies — rice, chappathi/roti, salad, yoghurt, fruit, plain pasta, toast, apple slices. NEVER a separate recipe with steps.\n"
+            "  Examples by meal:\n"
+            "    breakfast main 'Vegetable poha' → pairings: [{for:'Aysha', with:'Toast with butter', why:'easier for the kid'}]\n"
+            "    lunch main 'Chicken biryani' → pairings: [{for:'Sara', with:'Plain rice + dal', why:'low-GI for diabetes'}, {for:'Aysha', with:'Plain rice + curd', why:'kid-friendly'}]\n"
+            "    snack main 'Roasted chana' → pairings: [{for:'Aysha', with:'Apple slices', why:'easier for the kid'}]\n"
+            "    dinner main 'Grilled chicken' → pairings: [{for:'Aysha', with:'2 chappathis', why:'easy, kid-friendly'}]\n"
+            "  Only OMIT pairings when EVERY household member has identical constraints (rare).\n\n"
             "Return ONLY a JSON object with this structure:\n"
             "{\n"
             '  "days": [\n'
@@ -343,10 +375,40 @@ class PlanGenerator:
             '      "date": "YYYY-MM-DD",\n'
             '      "meal_health_banner": "Warm caring line about today\'s meals",\n'
             '      "meals": {\n'
-            '        "breakfast": {"name": "Dish name", "prep_mins": 15, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},\n'
-            '        "lunch": {"name": "Dish name", "prep_mins": 30, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},\n'
-            '        "dinner": {"name": "Dish name", "prep_mins": 30, "description": "Brief recipe", "ingredients": ["ingredient 1", "ingredient 2"]},\n'
-            '        "snacks": ["Snack 1", "Snack 2"]\n'
+            '        "breakfast": {\n'
+            '          "name": "Dish name", "prep_mins": 15, "kcal": 320, "description": "Brief recipe",\n'
+            '          "ingredients": ["ingredient 1", "ingredient 2"],\n'
+            '          "steps": ["Step 1", "Step 2", "Step 3", "Step 4"],\n'
+            '          "tags": ["PCOS-friendly", "High protein"],\n'
+            '          "pairings": [{"for": "Aysha", "with": "Toast with butter", "why": "easy, kid-friendly"}]\n'
+            "        },\n"
+            '        "lunch": {\n'
+            '          "name": "Dish name", "prep_mins": 30, "kcal": 520, "description": "Brief recipe",\n'
+            '          "ingredients": ["ingredient 1", "ingredient 2"],\n'
+            '          "steps": ["Step 1", "Step 2", "Step 3", "Step 4"],\n'
+            '          "tags": ["Family-friendly", "Iron-rich"],\n'
+            '          "pairings": [\n'
+            '            {"for": "Sara", "with": "Plain rice + dal", "why": "low-GI for diabetes"},\n'
+            '            {"for": "Aysha", "with": "Plain rice + curd", "why": "simpler for the kid"}\n'
+            "          ]\n"
+            "        },\n"
+            '        "snack": {\n'
+            '          "name": "Single snack dish (no lists)", "prep_mins": 5, "kcal": 180, "description": "Brief one-liner",\n'
+            '          "ingredients": ["ingredient 1", "ingredient 2"],\n'
+            '          "steps": ["Step 1", "Step 2"],\n'
+            '          "tags": ["Quick", "Fiber-rich"],\n'
+            '          "pairings": [{"for": "Aysha", "with": "Apple slices", "why": "easier for the kid"}]\n'
+            "        },\n"
+            '        "dinner": {\n'
+            '          "name": "Dish name", "prep_mins": 30, "kcal": 580, "description": "Brief recipe",\n'
+            '          "ingredients": ["ingredient 1", "ingredient 2"],\n'
+            '          "steps": ["Marinate the chicken with yogurt and spices for 15 min", "Heat oil in a pan over medium heat", "Sear chicken until golden, about 4 min per side", "Toss in bell peppers and stir-fry for 3 min", "Plate with brown rice and serve hot"],\n'
+            '          "tags": ["High protein", "Family-friendly", "Low GI"],\n'
+            '          "pairings": [\n'
+            '            {"for": "Sara, Ahmed", "with": "Quinoa pilaf", "why": "low-GI for diabetes + PCOS"},\n'
+            '            {"for": "Aysha, Zayd",  "with": "2 small chappathis", "why": "easy, kid-friendly"}\n'
+            "          ]\n"
+            "        }\n"
             "      }\n"
             "    }\n"
             "  ]\n"
@@ -546,6 +608,16 @@ class PlanGenerator:
             "  * Fiber: vegetables, salad, thoran, beans, whole grains, fruits, etc.\n"
             "  * Even breakfast — never suggest just toast or fruit alone. Always include protein, fat, and fiber.\n"
             "  * Example: 'Puttu with kadala curry, coconut, and thoran' → carbs (puttu) + protein (kadala) + fat (coconut) + fiber (thoran)\n"
+            "- COOKING STEPS: every meal MUST include a `steps` array of 4-8 short imperative sentences.\n"
+            "  Each step is one action: 'Marinate the chicken with yogurt and spices', 'Heat oil in a pan over medium heat', etc. No numbering — just sentences.\n"
+            "- KCAL: every meal MUST include a `kcal` integer — approximate calories per serving (a single adult portion). Realistic ranges: breakfast 250-450, lunch 400-650, dinner 400-700, snack 80-220.\n"
+            "- SNACK: emit exactly ONE snack as a single dish object. The `name` must be ONE concrete item (e.g. 'Roasted chana with peanuts', 'Apple slices with peanut butter') — NEVER a list, NEVER multiple items joined by '•' or commas.\n"
+            "- TAGS: every meal MUST include a `tags` array of 2-3 SHORT (1-3 word) dietary highlights.\n"
+            "  Pick from: condition tags (PCOS-friendly, Diabetic-friendly, Heart-healthy, Anti-inflammatory, Low GI), nutrition tags (High protein, Iron-rich, Fiber-rich, Low carb, Healthy fats), context tags (Family-friendly, Quick, One-pan, Make-ahead, Comfort), recovery tags (Postpartum, Lactation support).\n"
+            "  Drive at least one tag from the user's health conditions/goals. Example: PCOS user → 'PCOS-friendly' or 'Low GI' on every meal.\n"
+            "- PAIRINGS: when the household has members with differing dietary needs (a child + adult, a member with a health condition others don't share, or a per-member dietary override), every applicable meal MUST include a `pairings` array.\n"
+            "  Each pairing entry: `for` (real first names from the household, comma-separated), `with` (a SIMPLE side — rice, chappathi/roti, salad, yoghurt, fruit; never a separate recipe), `why` (one-line reason).\n"
+            "  Only OMIT pairings when EVERY household member has identical constraints.\n"
             "- meal_health_banner: If the user has health conditions, write ONE warm, caring line (under 20 words) about why today's meals are tailored for them.\n"
             "  * Mention the condition and family naturally. Sound like a caring friend, not a doctor.\n"
             "  * Example: 'Today's meals are gentle on your PCOS — low GI, anti-inflammatory, and your family will love them too'\n"
@@ -694,16 +766,29 @@ class PlanGenerator:
                     ingredients=meal.get('ingredients', []),
                 )
 
-        # Save snacks if present
-        snacks = meals_data.get('snacks')
-        if snacks and isinstance(snacks, list):
+        # Save snack — new shape is a single meal object. Legacy plans may
+        # still come back from Gemini as a list of strings; fall through to
+        # joining them so we don't drop the data on transition runs.
+        snack = meals_data.get('snack')
+        if isinstance(snack, dict) and snack.get('name'):
             MealPlan.objects.create(
                 day_plan=day_plan,
                 meal_type='snack',
-                name=', '.join(snacks),
-                description='',
-                prep_time_minutes=0,
+                name=snack.get('name', ''),
+                description=snack.get('description', ''),
+                prep_time_minutes=snack.get('prep_mins', 0),
+                ingredients=snack.get('ingredients', []),
             )
+        else:
+            legacy = meals_data.get('snacks')
+            if isinstance(legacy, list) and legacy:
+                MealPlan.objects.create(
+                    day_plan=day_plan,
+                    meal_type='snack',
+                    name=', '.join(str(s) for s in legacy),
+                    description='',
+                    prep_time_minutes=0,
+                )
 
     # ------------------------------------------------------------------
     # Housework — extract from plan data and save as HouseworkList/Task

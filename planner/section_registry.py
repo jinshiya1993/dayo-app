@@ -8,6 +8,14 @@
 
 SECTION_REGISTRY = {
     # ── Shared sections (any user type) ──────────────────────────
+    'today_timeline': {
+        'label': 'Today',
+        'subtitle': 'Time-ordered overview of your day',
+        'icon': 'timeline',
+        'emoji': '🗓️',
+        'lockable': False,
+        'category': 'essentials',
+    },
     'meal_cards': {
         'label': "Today's meals",
         'subtitle': 'Breakfast, lunch and dinner',
@@ -262,7 +270,7 @@ def build_initial_layout(profile):
     """
     from datetime import date
 
-    children = list(profile.children.all()) if profile.pk else []
+    children = list(profile.members.filter(role='child')) if profile.pk else []
     works = bool(profile.works_outside_home)
 
     today = date.today()

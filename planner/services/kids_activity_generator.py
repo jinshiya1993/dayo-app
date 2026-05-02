@@ -101,11 +101,11 @@ class KidsActivityGenerator:
         # activities — motor skills aren't there yet); age 3-12 gets
         # story + 2 activities. Teens (13+) manage their own time and
         # don't need a daily activity pack.
-        children = [c for c in profile.children.all() if 2 <= c.age < 13]
+        children = [m for m in profile.members.filter(role='child') if 2 <= m.age < 13]
         if not children:
             raise ValueError('No children aged 2-12 found. Activities are for ages 2 through 12.')
 
-        user_message = self._build_prompt(children, target_date)
+        user_message = self._build_prompt(children, target_date, profile)
 
         messages = [
             SystemMessage(content=SYSTEM_PROMPT),
@@ -181,13 +181,28 @@ class KidsActivityGenerator:
         ),
     }
 
-    def _build_prompt(self, children, target_date):
+    def _build_prompt(self, children, target_date, profile=None):
+        # Household-wide kids preferences from onboarding (per-child overrides
+        # on HouseholdMember.activity_difficulty still win).
+        household_focus = []
+        household_default_difficulty = ''
+        household_time_pref = ''
+        if profile is not None:
+            household_focus = list(profile.kids_activity_focus or [])
+            household_default_difficulty = (profile.kids_default_difficulty or '').strip()
+            household_time_pref = (profile.kids_activity_time_pref or '').strip()
+
         children_info = []
         has_toddler = False
         has_older = False
         for child in children:
             interests = ', '.join(child.interests) if child.interests else 'general'
-            difficulty = getattr(child, 'activity_difficulty', 'standard') or 'standard'
+            # Per-child override beats household default beats hardcoded 'standard'.
+            difficulty = (
+                getattr(child, 'activity_difficulty', None)
+                or household_default_difficulty
+                or 'standard'
+            )
             diff_label = self.DIFFICULTY_DESCRIPTIONS.get(difficulty, self.DIFFICULTY_DESCRIPTIONS['standard'])
             if child.age < 3:
                 has_toddler = True
@@ -226,9 +241,24 @@ class KidsActivityGenerator:
             else "Each child gets a short sensory story — no activities."
         )
 
+        household_block = ''
+        if household_focus:
+            household_block += (
+                f"\nHOUSEHOLD ACTIVITY FOCUS: prioritise {', '.join(household_focus)}. "
+                "Bias activity types toward these themes whenever possible.\n"
+            )
+        if household_time_pref and household_time_pref != 'both':
+            time_label = {
+                'after_school': 'after-school slot (~3-6pm)',
+                'weekend': 'weekend (longer-form, more involved)',
+            }.get(household_time_pref, household_time_pref)
+            household_block += (
+                f"TIMING: parent prefers {time_label}. Tailor activity length accordingly.\n"
+            )
+
         return (
             f"Generate today's activity pack for {target_date.strftime('%A, %B %d, %Y')}.\n\n"
-            f"Children:\n{children_block}\n{diff_reminder}{toddler_rule}\n"
+            f"Children:\n{children_block}\n{diff_reminder}{toddler_rule}{household_block}\n"
             f"Pick a fun theme. {activity_instruction}\n\n"
             f"Return this exact JSON structure:\n"
             f'{{\n'

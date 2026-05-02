@@ -88,6 +88,17 @@ class UserProfile(models.Model):
     # Grocery & exclusions
     grocery_day = models.CharField(max_length=10, default='', blank=True)
 
+    class CookingResponsibility(models.TextChoices):
+        ME = 'me', 'I cook'
+        HELPER = 'helper', 'Our helper cooks'
+        EAT_OUT = 'eat_out', 'We mostly order or eat out'
+
+    cooking_responsibility = models.CharField(
+        max_length=10,
+        choices=CookingResponsibility.choices,
+        default=CookingResponsibility.ME,
+    )
+
     class GroceryFrequency(models.TextChoices):
         WEEKLY = 'weekly', 'Weekly'
         BIWEEKLY = 'biweekly', 'Every 2 weeks'
@@ -111,6 +122,49 @@ class UserProfile(models.Model):
     family_size = models.PositiveIntegerField(
         default=1,
         help_text='Number of people she cooks for (including herself)',
+    )
+    age = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="The user's own age — shown on the household members screen.",
+    )
+
+    # Cuisine + spice (collected on the kitchen step)
+    secondary_cuisines = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Cuisines the household enjoys occasionally (1-2 per week).',
+    )
+    spice_level = models.PositiveSmallIntegerField(
+        default=3,
+        help_text='1=Mild, 2=Light, 3=Medium, 4=Hot, 5=Fire.',
+    )
+
+    # Kids onboarding step (only shown to users with at least one child)
+    class KidsTimePref(models.TextChoices):
+        AFTER_SCHOOL = 'after_school', 'After school'
+        WEEKEND = 'weekend', 'Weekend'
+        BOTH = 'both', 'Both'
+        ANY = '', 'No preference'
+
+    kids_activity_focus = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='What kinds of activities the household wants for kids '
+                  '(e.g. ["Academic", "Creative", "Outdoor"]).',
+    )
+    kids_default_difficulty = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        help_text='Household-wide default difficulty for kids activities. '
+                  "Per-child overrides on HouseholdMember take precedence.",
+    )
+    kids_activity_time_pref = models.CharField(
+        max_length=20,
+        choices=KidsTimePref.choices,
+        default=KidsTimePref.ANY,
+        blank=True,
     )
 
     # Housework / home help
@@ -162,7 +216,17 @@ class UserProfile(models.Model):
 # -------------------------------------------------------------------
 # 2. Child
 # -------------------------------------------------------------------
-class Child(models.Model):
+class HouseholdMember(models.Model):
+    class Role(models.TextChoices):
+        CHILD = 'child', 'Child'
+        PARTNER = 'partner', 'Partner'
+        GRANDPARENT = 'grandparent', 'Grandparent'
+        PARENT = 'parent', 'Parent'
+        SIBLING = 'sibling', 'Sibling'
+        HELPER = 'helper', 'Helper'
+        ROOMMATE = 'roommate', 'Roommate'
+        OTHER = 'other', 'Other'
+
     class ActivityDifficulty(models.TextChoices):
         EASY = 'easy', 'Easy'
         STANDARD = 'standard', 'Standard'
@@ -172,8 +236,9 @@ class Child(models.Model):
     parent = models.ForeignKey(
         UserProfile,
         on_delete=models.CASCADE,
-        related_name='children',
+        related_name='members',
     )
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.CHILD)
     name = models.CharField(max_length=100)
     date_of_birth = models.DateField()
     interests = models.JSONField(default=list, blank=True)
@@ -184,6 +249,11 @@ class Child(models.Model):
         choices=ActivityDifficulty.choices,
         default=ActivityDifficulty.STANDARD,
     )
+    # Per-member overrides — additive on top of UserProfile family-wide defaults.
+    # Empty list means "inherit family settings". Populate to add personal constraints.
+    member_dietary = models.JSONField(default=list, blank=True)
+    member_health_conditions = models.JSONField(default=list, blank=True)
+    member_exclusions = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -195,7 +265,7 @@ class Child(models.Model):
         )
 
     def __str__(self):
-        return f'{self.name} (age {self.age})'
+        return f'{self.name} ({self.role}, age {self.age})'
 
 
 # -------------------------------------------------------------------
@@ -232,7 +302,7 @@ class ScheduleEvent(models.Model):
         related_name='schedule_events',
     )
     child = models.ForeignKey(
-        Child,
+        HouseholdMember,
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -340,7 +410,7 @@ class PlanBlock(models.Model):
         blank=True,
     )
     child = models.ForeignKey(
-        Child,
+        HouseholdMember,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -812,7 +882,7 @@ class KidsActivityDay(models.Model):
         related_name='days',
     )
     child = models.ForeignKey(
-        Child,
+        HouseholdMember,
         on_delete=models.CASCADE,
         related_name='activity_days',
     )
@@ -881,3 +951,30 @@ class CuisineMealSuggestions(models.Model):
 
     def __str__(self):
         return self.display_cuisine
+
+
+# -------------------------------------------------------------------
+# Today timeline check — per-day done state for the dashboard timeline
+# -------------------------------------------------------------------
+class TodayTimelineCheck(models.Model):
+    """Tracks whether a single timeline row has been marked done for a given
+    date. The timeline aggregates rows from many sources (meals, schedule
+    events, class alerts, selfcare, grocery), so we key by a stable string
+    item_key — see services/timeline.py for the key scheme."""
+
+    profile = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='timeline_checks',
+    )
+    date = models.DateField()
+    item_key = models.CharField(max_length=80)
+    completed = models.BooleanField(default=True)
+    completed_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        unique_together = ['profile', 'date', 'item_key']
+        ordering = ['-date', 'item_key']
+
+    def __str__(self):
+        return f'{self.date} {self.item_key} {"✓" if self.completed else "·"}'

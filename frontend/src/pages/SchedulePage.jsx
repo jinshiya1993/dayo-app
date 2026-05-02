@@ -123,7 +123,9 @@ export default function SchedulePage() {
       profileApi.get(),
     ]);
     if (!ev.error) setAllEvents(Array.isArray(ev) ? ev : []);
-    if (!ch.error) setChildList(Array.isArray(ch) ? ch : []);
+    if (!ch.error) setChildList(
+      Array.isArray(ch) ? ch.filter((m) => (m.role || 'child') === 'child') : []
+    );
     if (!prof.error) setProfileData(prof);
     setLoading(false);
   }

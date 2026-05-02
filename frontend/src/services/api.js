@@ -66,13 +66,16 @@ export const sections = {
   list: () => request('/sections/'),
 };
 
-// Children
-export const children = {
-  list: () => request('/children/'),
-  create: (data) => request('/children/', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id, data) => request(`/children/${id}/`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id) => request(`/children/${id}/`, { method: 'DELETE' }),
+// Household members (formerly children — kept the export name `children`
+// as a backward-compat alias so existing pages keep working until they
+// migrate to `members`.)
+export const members = {
+  list: () => request('/members/'),
+  create: (data) => request('/members/', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => request(`/members/${id}/`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => request(`/members/${id}/`, { method: 'DELETE' }),
 };
+export const children = members;
 
 // Events
 export const events = {
@@ -87,10 +90,22 @@ export const plans = {
   generate: (date) => request('/plans/generate/', { method: 'POST', body: JSON.stringify(date ? { date } : {}) }),
   get: (date) => request(`/plans/${date}/`),
   swapMeal: (date, mealType) => request(`/plans/${date}/swap-meal/`, { method: 'POST', body: JSON.stringify({ meal_type: mealType }) }),
+  renameMeal: (date, mealType, name) => request(`/plans/${date}/rename-meal/`, { method: 'POST', body: JSON.stringify({ meal_type: mealType, name }) }),
   substituteMeal: (date, mealType, ingredient) => request(`/plans/${date}/substitute-meal/`, { method: 'POST', body: JSON.stringify({ meal_type: mealType, ingredient }) }),
+  extractIngredients: (date, mealType) => request(`/plans/${date}/extract-ingredients/${mealType}/`, { method: 'POST' }),
+  extractRecipe: (date, mealType) => request(`/plans/${date}/extract-recipe/${mealType}/`, { method: 'POST' }),
   changeMeal: (date, mealType, userRequest) => request(`/plans/${date}/change-meal/`, { method: 'POST', body: JSON.stringify({ meal_type: mealType, request: userRequest }) }),
   weekly: () => request('/plans/weekly/'),
   generateWeek: () => request('/plans/weekly/', { method: 'POST' }),
+};
+
+// Today timeline (aggregated overview of meals + events + alerts + selfcare)
+export const timeline = {
+  today: () => request('/timeline/today/'),
+  toggleCheck: (itemKey, completed) => request('/timeline/check/', {
+    method: 'POST',
+    body: JSON.stringify({ item_key: itemKey, completed }),
+  }),
 };
 
 // Favourite meals + cuisine-driven suggestions

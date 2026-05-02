@@ -1,5 +1,6 @@
 import GreetingSection from './sections/GreetingSection';
 import TodaysScheduleSection from './sections/TodaysScheduleSection';
+import TodayTimelineSection from './sections/TodayTimelineSection';
 import MealCardsSection from './sections/MealCardsSection';
 import GrocerySection from './sections/GrocerySection';
 import KidsActivitiesSection from './sections/KidsActivitiesSection';
@@ -128,6 +129,9 @@ export default function DynamicDashboard({ plan, profileData, childList, planDat
       {/* Schedule alerts — always right after greeting, outside layout */}
       <TodaysScheduleSection />
 
+      {/* Today timeline — overview list above the per-section cards */}
+      <TodayTimelineSection />
+
       {layout.map((sectionKey) => {
         // Skip greeting (rendered above) and schedule (rendered above)
         if (sectionKey === 'greeting' || sectionKey === 'schedule_alert' || sectionKey === 'class_alert') return null;
@@ -156,10 +160,11 @@ export default function DynamicDashboard({ plan, profileData, childList, planDat
           return <Component key={sectionKey} data={planData.baby_schedule} baby={planData.baby} />;
         }
 
-        // Meal sections need planData for banner + actions
+        // Meal sections need planData for banner + actions, and profileData
+        // for the user's name in pairings.
         if (sectionKey === 'meal_cards' || sectionKey === 'mom_meals') {
           const data = config.dataKey ? planData[config.dataKey] : null;
-          return <Component key={sectionKey} data={data} planData={planData} planDate={planDate} onPlanUpdate={onPlanUpdate} />;
+          return <Component key={sectionKey} data={data} planData={planData} planDate={planDate} onPlanUpdate={onPlanUpdate} profileData={profileData} />;
         }
 
         // Grocery section needs profile for shopping day

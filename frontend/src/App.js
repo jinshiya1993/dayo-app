@@ -12,6 +12,8 @@ import OnboardingChat from './pages/OnboardingChat';
 import OnboardingForm from './pages/OnboardingForm';
 import OnboardingPreview from './pages/OnboardingPreview';
 import CustomiseDashboard from './pages/CustomiseDashboard';
+import RecipePage from './pages/RecipePage';
+import PlanWeekPage from './pages/PlanWeekPage';
 import { profile } from './services/api';
 
 function App() {
@@ -89,6 +91,8 @@ function App() {
         <Route path="/schedule" element={<SchedulePage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/settings/dashboard" element={<CustomiseDashboard />} />
+        <Route path="/recipe" element={<RecipePage />} />
+        <Route path="/plan-week" element={<PlanWeekPage />} />
         <Route path="/onboarding/preview" element={<OnboardingPreview />} />
         <Route path="/auth" element={<Navigate to="/" replace />} />
         <Route path="/onboarding" element={<Navigate to="/" replace />} />
