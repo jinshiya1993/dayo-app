@@ -11,8 +11,8 @@ const CITIES = [
   'Aurangabad', 'Amritsar', 'Allahabad', 'Ranchi', 'Gwalior', 'Jabalpur',
   'Vijayawada', 'Jodhpur', 'Madurai', 'Raipur', 'Kota', 'Chandigarh',
   'Guwahati', 'Mysore', 'Tiruchirappalli', 'Gurgaon', 'Noida',
-  'Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Thrissur', 'Kollam',
-  'Kannur', 'Alappuzha', 'Palakkad',
+  'Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Calicut', 'Thrissur', 'Kollam',
+  'Kannur', 'Alappuzha', 'Palakkad', 'Malappuram',
   // US
   'New York', 'Los Angeles', 'Chicago', 'Houston', 'San Francisco', 'Seattle',
   'Boston', 'Washington DC', 'Miami', 'Atlanta', 'Dallas', 'Austin',
