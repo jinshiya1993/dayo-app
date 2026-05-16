@@ -15,7 +15,7 @@ export default function GreetingStrip({ displayName }) {
     <div className="greeting-strip">
       <div className="greeting-left">
         <div className="greeting-label">{greeting}</div>
-        <div className="greeting-name">{displayName || 'there'}</div>
+        <div className="greeting-name">{displayName ? displayName[0].toUpperCase() + displayName.slice(1) : 'there'}</div>
         <div className="greeting-date">{dateStr}</div>
       </div>
     </div>
