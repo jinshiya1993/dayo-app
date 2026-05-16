@@ -60,6 +60,19 @@ _STAPLE_KEYWORDS = (
     'turmeric', 'cumin', 'mustard seed', 'fenugreek',
     'cardamom', 'cinnamon', 'clove', 'asafoetida', 'hing', 'garam',
     'sesame seed', 'bay leaf',
+    # Spice powders that are always stocked
+    'black pepper', 'white pepper', 'pepper powder',
+    'garlic powder', 'onion powder', 'chilli powder', 'chili powder', 'paprika',
+    # Cooking fats — pantry monthly, not weekly fresh-shopping
+    'coconut oil', 'olive oil', 'mustard oil', 'sesame oil',
+    'vegetable oil', 'sunflower oil', 'canola oil', 'peanut oil',
+    'avocado oil', 'palm oil', 'cooking oil', 'ghee',
+    # Sweeteners and pantry liquids that the AI sometimes lists as ingredients
+    'sugar', 'broth', 'stock',
+    # Bottled sauces and condiments — pantry purchases, not weekly fresh shopping
+    'soy sauce', 'soya sauce', 'fish sauce', 'oyster sauce', 'hoisin sauce',
+    'hot sauce', 'sriracha', 'tomato sauce', 'tomato paste', 'tomato puree',
+    'vinegar', 'worcestershire',
 )
 
 # Lower priority_order = appears first when we truncate at 25 items.
@@ -93,6 +106,20 @@ def _classify_category(name):
     return 'other'
 
 
+_LEADING_QTY = re.compile(
+    r'^\s*'
+    r'\d+[\d/\.\s]*\s*'   # leading number, fraction, decimal, possibly mixed (e.g. "1 1/2")
+    r'(?:cup|cups|tbsp|tablespoons?|tsp|teaspoons?|'
+    r'g|grams?|kg|kilograms?|ml|millilit(?:er|re)s?|l|lit(?:er|re)s?|'
+    r'oz|ounces?|lb|pounds?|inch|inches|'
+    r'pieces?|pcs?|small|medium|large|'
+    r'cans?|tins?|packets?|pkt|jars?|bottles?|'
+    r'bunch(?:es)?|cloves?|sprigs?|heads?|stalks?'
+    r')?\s+',
+    re.IGNORECASE,
+)
+
+
 def _normalise_ingredient(raw):
     """Return a cleaned ingredient name, or None if it's too vague to shop for."""
     if not raw:
@@ -102,7 +129,22 @@ def _normalise_ingredient(raw):
     # Drop trailing qualifiers like "low sodium", "dairy-free", etc that are
     # useful for cooking but noisy for the grocery list.
     cleaned = re.sub(r',\s*.*$', '', cleaned).strip()
+    # Strip leading recipe-language quantity prefixes so "1/2 cup rolled oats"
+    # → "rolled oats", "200g chicken" → "chicken", "2 medium potatoes" →
+    # "potatoes". The grocery-list quantity is set separately and shown next
+    # to the name in the UI; duplicating it in the name is just noise.
+    cleaned = _LEADING_QTY.sub('', cleaned, count=1).strip()
+    # Reduce "X or Y" alternations to X so "Water or vegetable broth" → "Water"
+    # (then dropped by the vague filter) and "Oil or ghee" → "Oil" (then
+    # dropped by the staple filter).
+    cleaned = re.sub(r'\s+or\s+.*$', '', cleaned, flags=re.IGNORECASE).strip()
     if not cleaned:
+        return None
+    # Reject leftover references — the AI tags reused dishes as ingredients
+    # ("leftover grilled chicken") so the cook knows to use what's already
+    # made. The original meal's real ingredients are already in the list, so
+    # the leftover entry has nothing to buy.
+    if cleaned.lower().startswith('leftover '):
         return None
     return cleaned
 
@@ -157,11 +199,16 @@ def _dedup_key(name):
 class GroceryGenerator:
 
     def __init__(self):
+        # Gemini 2.5 Flash spends reasoning tokens from the output budget by
+        # default — for grocery generation it was eating ~7.8K of 8K, leaving
+        # only enough room for ~half the JSON before truncation. Grocery list
+        # is structured extraction, not reasoning, so disable thinking.
         self.llm = ChatGoogleGenerativeAI(
             model='gemini-2.5-flash',
             google_api_key=settings.GEMINI_API_KEY,
             temperature=0.5,
             max_output_tokens=4096,
+            thinking_budget=0,
             transport='rest',
         )
 
@@ -186,10 +233,11 @@ class GroceryGenerator:
         pantry = list(profile.pantry_items.values_list('name', flat=True))
 
         # Step 3: Build a deterministic base list from the meals. This is the
-        # floor — every ingredient that appeared in a planned meal ends up
-        # here, so the list can never fall below what the user actually
-        # cooks. The AI refinement step then scales quantities, adds cooking
-        # essentials, and expands vague entries like "Spices".
+        # completeness floor — every fresh ingredient that appeared in a planned
+        # meal (after the staple/leftover/vague filters) ends up here, so the
+        # final list can never silently drop chicken, fish, paneer, etc. The
+        # AI refinement step then scales quantities, expands the list, and
+        # renames for shopping clarity.
         pantry_set = {p.strip().lower() for p in pantry if p and p.strip()}
         base_list = self._build_base_list(existing_meals, pantry_set)
         logger.warning(
@@ -202,9 +250,8 @@ class GroceryGenerator:
             refined = self._refine_with_ai(
                 profile, week_start, end_date, days, existing_meals, pantry, base_list
             )
-            # Only accept the AI refinement if it isn't shorter than the
-            # deterministic floor — a shorter response means Gemini dropped
-            # real ingredients the user actually cooks with.
+            # AI must at least cover the deterministic floor — a shorter
+            # response means it dropped real ingredients.
             if refined and len(refined) >= len(base_list):
                 parsed_items = refined
             elif refined:
@@ -213,7 +260,7 @@ class GroceryGenerator:
                     f'{len(base_list)} — falling back to deterministic list'
                 )
         except Exception as e:
-            logger.error(f'Grocery AI refinement failed, using deterministic list: {e}')
+            logger.error(f'Grocery AI refinement failed, using deterministic fallback: {e}')
 
         if parsed_items is None:
             parsed_items = self._base_list_to_items(base_list, profile.family_size or 1)
@@ -422,7 +469,7 @@ class GroceryGenerator:
         return picked[:MAX_GROCERY_ITEMS]
 
     def _refine_with_ai(self, profile, start_date, end_date, days, existing_meals, pantry, base_list):
-        """Ask Gemini to scale quantities, add cooking essentials, expand vague entries.
+        """Ask Gemini to build the weekly grocery list from the planned meals.
 
         Returns a list of {name, quantity, category} dicts, or None on failure.
         """
@@ -456,29 +503,45 @@ class GroceryGenerator:
                     ))
                 continue
 
-            # Drop any staples the AI slipped back in despite the prompt rules.
-            filtered = [
-                item for item in candidate
-                if isinstance(item, dict)
-                and item.get('name')
-                and not _is_pantry_staple(item['name'], item.get('category', ''))
-            ]
-            # Hard cap — if the AI went over 25, trim to the top items.
+            # Defensive cleanup of every AI-returned item:
+            # 1. Strip recipe-language prefixes ("1/2 cup rolled oats" → "Rolled oats")
+            #    and "X or Y" alternations ("Oil or ghee" → "Oil") from the name.
+            # 2. Drop pantry staples or leftover references that slipped past
+            #    the prompt rules — the base list is already staple-filtered,
+            #    so anything matching here is the AI hallucinating a staple
+            #    back in.
+            filtered = []
+            for item in candidate:
+                if not isinstance(item, dict) or not item.get('name'):
+                    continue
+                cleaned_name = _normalise_ingredient(item['name'])
+                if not cleaned_name:
+                    continue
+                if cleaned_name.lower().strip() in _VAGUE_INGREDIENT_NAMES:
+                    continue
+                if _is_pantry_staple(cleaned_name, item.get('category', '')):
+                    continue
+                # Preserve the AI's casing on the first letter (it knows better
+                # than upper-on-first), only replace the name with the cleaned
+                # form when stripping actually changed something.
+                if cleaned_name != item['name']:
+                    item = {**item, 'name': cleaned_name}
+                filtered.append(item)
             if len(filtered) > MAX_GROCERY_ITEMS:
                 filtered = filtered[:MAX_GROCERY_ITEMS]
 
             if len(filtered) < len(base_list) and attempt == 0:
                 logger.warning(
-                    f'Grocery AI returned {len(filtered)} items after staple-filter '
+                    f'Grocery AI returned {len(filtered)} items after defensive filter '
                     f'(base is {len(base_list)}) — asking to expand'
                 )
                 missing = len(base_list) - len(filtered)
                 messages.append(HumanMessage(content=(
                     f"You dropped {missing} ingredient(s) from the required base list. "
                     f"Every item in '## Required base items' MUST appear in your response "
-                    f"(you may rename for clarity but do not omit any). "
-                    f"Do NOT add pantry staples like rice, flour, bread, lentils, or "
-                    f"dried spices — those are already at home."
+                    f"(you may rename for shopping clarity but do not omit any). "
+                    f"Apply the quantity rules in the prompt — herbs in bunches, "
+                    f"aromatics in 100-200 g, no kg of pepper."
                 )))
                 continue
 
@@ -523,7 +586,7 @@ class GroceryGenerator:
         # Format planned meals — grouped by day with ingredients when known.
         # Passing ingredients is critical: without them Gemini guesses from the
         # dish name alone and under-reports (just produce), missing the grains,
-        # proteins, dairy, and spices the meals actually need.
+        # proteins, dairy, and dairy/aromatics the meals actually need.
         meals_text = "\n## Planned Dishes\n"
         if existing_meals['meals']:
             days_grouped = {}
@@ -551,37 +614,63 @@ class GroceryGenerator:
 
         base_text = ""
         if base_list:
-            base_text = "\n## Required base items (EVERY one must appear in your response)\n"
+            base_text = (
+                "\n## Required base items (EVERY one MUST appear in your response)\n"
+                "These are the fresh ingredients the planned meals actually need, "
+                "already filtered for pantry staples. You MUST include every one, "
+                "but you may rename for shopping clarity (e.g. 'Chicken breast' → "
+                "'Chicken') and apply the quantity rules below.\n"
+            )
             for entry in base_list:
                 base_text += f"- {entry['name']}  (appears in {entry['meal_count']} meal(s), category: {entry['category']})\n"
 
         return (
-            f"Build a WEEKLY fresh-shopping list for {days} days "
+            f"Build a {freq} fresh-shopping list for {days} days "
             f"({start_date.strftime('%B %d')} to {end_date.strftime('%B %d')}).\n"
             f"Family size: {family} people\n"
             f"{meals_text}"
             f"{base_text}"
             f"{pantry_text}\n"
-            "Rules:\n"
-            f"- Return {len(base_list) if base_list else MAX_GROCERY_ITEMS} items exactly. Hard cap: {MAX_GROCERY_ITEMS} items.\n"
-            "- EVERY item in '## Required base items' MUST appear in your response "
-            "(you may rename for shopping clarity — e.g. 'Chicken breast' → 'Chicken' — but do not omit any).\n"
-            "- DO NOT add always-stocked staples: no rice, no flour/atta, no dried "
-            "lentils/dal/pulses, no dried spices (turmeric, cumin, mustard seed, etc.). "
-            "The user buys those monthly, not weekly.\n"
-            "- DO NOT add cooking essentials (oil, ghee, salt, sugar) — those are also staples.\n"
-            "- Focus the list on fresh items the user buys weekly: produce (vegetables, fruits, herbs), "
-            "meat/fish/chicken/eggs, dairy (milk, yoghurt, paneer, cheese), and any grains "
-            "that run out weekly like bread/oats/pasta/noodles.\n"
-            f"- Scale quantities for {family} people based on how many meals use each ingredient.\n"
-            "- Use realistic local quantities: kg, g, litres, packets, pieces — NOT cups or tablespoons.\n"
-            "- Do NOT include any item from the Pantry list above.\n"
-            "- Categorise every item using one of: produce, dairy, protein, grains, other.\n"
-            "- Short names: 1-3 words max per item.\n"
-            "- Short quantities: '2 kg', '500 g', '1 L', '6 pcs', '2 pkt'.\n\n"
-            "Return ONLY valid JSON array, each item on one line:\n"
+            "## What to INCLUDE (only fresh items the user actually buys this period)\n"
+            "- Fresh produce: vegetables, fruits, fresh herbs (cilantro, basil, mint, parsley)\n"
+            "- Fresh proteins: chicken, fish, mutton, eggs, paneer, tofu\n"
+            "- Dairy: milk, yoghurt/curd, cheese, fresh cream\n"
+            "- Grains that run out weekly: bread, oats, pasta, noodles, fresh poha\n"
+            "- Specialty items called for in the meals that the user wouldn't normally stock\n"
+            "\n"
+            "## What to EXCLUDE (the user already keeps these stocked)\n"
+            "- Pantry staples: rice, flour/atta, dried lentils/dal/pulses, sugar, salt\n"
+            "- Dried spices and powders: turmeric, cumin, coriander powder, garam masala, "
+            "black/white pepper, paprika, garlic powder, onion powder, chilli powder, mustard seed, etc.\n"
+            "- Cooking oils and fats: any oil (coconut, olive, mustard, sesame, vegetable), ghee, butter for cooking\n"
+            "- Water, broth, stock — never put these on a shopping list\n"
+            "- Already-cooked dishes / leftovers — anything starting with 'leftover'\n"
+            "- Recipe-language items: write 'lemons' (pieces), not 'lemon juice'; "
+            "write 'garlic', not 'garlic paste'; write 'tomatoes', not 'tomato puree'\n"
+            "\n"
+            f"## Quantity guidance for {family} people over {days} days\n"
+            "- Use realistic local quantities: kg, g, litres, packets, pieces, bunches — NEVER cups or tablespoons\n"
+            "- Fresh herbs (cilantro, basil, mint, parsley, dill, curry leaves): '1 bunch' or '50 g' — NEVER kg\n"
+            "- Aromatics (ginger, garlic, green chilli): 100–200 g — NEVER kg\n"
+            "- Lemons in pieces (e.g. '6 pcs'), not juice in kg\n"
+            "- Onions, tomatoes, potatoes scale with meals: typically 1–4 kg total for a family\n"
+            "- Meat/fish/chicken: typically 0.5–2 kg total based on how many meals call for it\n"
+            "- Milk: scale to ~1 L per 4 days for a family\n"
+            "- Eggs: 6–12 pcs for a family-week\n"
+            "\n"
+            "## Output format\n"
+            f"- Return up to {MAX_GROCERY_ITEMS} items. Be thorough but never include excluded items above.\n"
+            "- Categorise every item: produce, dairy, protein, grains, other\n"
+            "- Short names (1–3 words). Short quantities ('2 kg', '500 g', '1 L', '6 pcs', '1 bunch')\n"
+            "- NEVER put measurements in the name. Write 'Rolled oats' (name) + '500 g' (quantity), "
+            "NOT '1/2 cup rolled oats' as the name. Same for '2 cups millet' → name 'Millet', quantity '500 g'.\n"
+            "- NEVER use 'X or Y' alternations in the name. Pick one. 'Plant milk', not 'Water or plant milk'.\n"
+            "- Do NOT include anything from the Pantry list above\n"
+            "\n"
+            "Return ONLY a valid JSON array, each item on one line:\n"
             '[{"name":"Onion","quantity":"2 kg","category":"produce"},\n'
             '{"name":"Chicken","quantity":"1.5 kg","category":"protein"},\n'
+            '{"name":"Cilantro","quantity":"1 bunch","category":"produce"},\n'
             '{"name":"Milk","quantity":"2 L","category":"dairy"}]\n'
         )
 
@@ -629,12 +718,27 @@ class GroceryGenerator:
             )
 
 
+_HERB_NAMES = ('cilantro', 'coriander leaves', 'basil', 'mint', 'parsley', 'dill', 'curry leaves')
+_AROMATIC_NAMES = ('ginger', 'garlic', 'green chilli', 'green chili')
+_CITRUS_NAMES = ('lemon', 'lime')
+
+
 def _estimate_quantity(name, category, meal_count, family_size):
     """Rough fallback quantity when AI refinement didn't run. Values are
     deliberately conservative — the user can top up, and an overestimate is
     wasteful, but we avoid 'as needed' for anything we can put a number on."""
     n = name.lower()
     servings = max(1, meal_count * family_size)
+
+    # Per-name caps that override category scaling. Fresh herbs and aromatics
+    # are always small quantities no matter how many meals they appear in,
+    # and citrus is bought by the piece. Mirrors the AI prompt rules.
+    if any(h in n for h in _HERB_NAMES):
+        return '50 g'
+    if any(a in n for a in _AROMATIC_NAMES):
+        return '200 g'
+    if any(c in n for c in _CITRUS_NAMES):
+        return f'{max(2, min(8, servings // 2))} pcs'
 
     if category == 'dairy':
         if 'milk' in n:
