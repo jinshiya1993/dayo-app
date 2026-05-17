@@ -70,8 +70,11 @@ WSGI_APPLICATION = 'Dayo_project.wsgi.application'
 
 # Database
 if os.getenv('DATABASE_URL'):
+    # conn_max_age=0 because Supabase's transaction-mode pooler (port 6543)
+    # hands the same physical connection to different requests; persistent
+    # app-side connections cause prepared-statement clashes and idle holds.
     DATABASES = {
-        'default': dj_database_url.config(conn_max_age=600),
+        'default': dj_database_url.config(conn_max_age=0),
     }
 else:
     DATABASES = {
