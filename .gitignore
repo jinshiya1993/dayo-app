@@ -16,6 +16,9 @@ frontend/build/
 .vscode/
 .idea/
 
+# Claude Code (local settings, not shared)
+.claude/
+
 # OS
 .DS_Store
 

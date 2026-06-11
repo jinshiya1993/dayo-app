@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth } from '../services/api';
+
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
 
 export default function AuthPage() {
   const navigate = useNavigate();
@@ -8,6 +10,46 @@ export default function AuthPage() {
   const [form, setForm] = useState({ username: '', email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const googleBtnRef = useRef(null);
+
+  // Render the Google Identity Services button once its script has loaded.
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || !googleBtnRef.current) return;
+    let cancelled = false;
+
+    async function handleGoogleResponse(response) {
+      setError('');
+      const result = await auth.google(response.credential);
+      if (cancelled) return;
+      if (result.error) {
+        setError(result.error === 'unauthorized' ? 'Google sign-in failed' : result.error);
+      } else {
+        navigate('/');
+      }
+    }
+
+    function tryRender() {
+      if (cancelled) return;
+      if (!window.google?.accounts?.id) {
+        setTimeout(tryRender, 200); // GIS script still loading
+        return;
+      }
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleResponse,
+      });
+      window.google.accounts.id.renderButton(googleBtnRef.current, {
+        theme: 'outline',
+        size: 'large',
+        text: 'continue_with',
+        shape: 'pill',
+        width: 300,
+      });
+    }
+
+    tryRender();
+    return () => { cancelled = true; };
+  }, [navigate]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -38,6 +80,17 @@ export default function AuthPage() {
         da<span style={{ color: '#C2855A' }}>yo</span>
       </div>
       <div className="auth-tagline">Your personal AI day planner</div>
+
+      {GOOGLE_CLIENT_ID && (
+        <>
+          <div ref={googleBtnRef} style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#9b8f86', fontSize: 13, marginBottom: 18 }}>
+            <span style={{ flex: 1, height: 1, background: '#EDE8E3' }} />
+            or
+            <span style={{ flex: 1, height: 1, background: '#EDE8E3' }} />
+          </div>
+        </>
+      )}
 
       <form className="auth-form" onSubmit={handleSubmit}>
         <input

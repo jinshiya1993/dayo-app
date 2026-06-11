@@ -145,6 +145,9 @@ if not DEBUG:
 # Google Gemini API
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 
+# Google Sign-In (OAuth client ID — "Web application" type)
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
+
 # REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [

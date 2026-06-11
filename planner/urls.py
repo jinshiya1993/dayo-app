@@ -14,6 +14,7 @@ urlpatterns = [
     # Auth
     path('auth/register/', views.RegisterView.as_view(), name='register'),
     path('auth/login/', views.LoginView.as_view(), name='login'),
+    path('auth/google/', views.GoogleAuthView.as_view(), name='google-auth'),
     path('auth/logout/', views.LogoutView.as_view(), name='logout'),
 
     # Profile

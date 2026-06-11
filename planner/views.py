@@ -1,7 +1,11 @@
 import logging
 from datetime import date, timedelta
 
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.models import User
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 
 logger = logging.getLogger(__name__)
 from django.db.models import Q
@@ -114,6 +118,78 @@ class LogoutView(APIView):
     def post(self, request):
         logout(request)
         return Response({'message': 'Logged out'})
+
+
+class GoogleAuthView(APIView):
+    """Sign in / sign up with a Google ID token from Google Identity Services."""
+    permission_classes = [AllowAny]
+    authentication_classes = []  # Skip SessionAuth CSRF check, like login/register
+
+    def post(self, request):
+        credential = request.data.get('credential')
+        if not credential:
+            return Response(
+                {'error': 'Missing Google credential'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        client_id = settings.GOOGLE_CLIENT_ID
+        if not client_id:
+            return Response(
+                {'error': 'Google sign-in is not configured'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            idinfo = id_token.verify_oauth2_token(
+                credential, google_requests.Request(), client_id,
+            )
+        except ValueError:
+            return Response(
+                {'error': 'Invalid Google token'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        email = idinfo.get('email')
+        if not email or not idinfo.get('email_verified'):
+            return Response(
+                {'error': 'Google account email is not verified'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        name = idinfo.get('name') or email.split('@')[0]
+
+        # Match an existing account by email (works even for users who first
+        # signed up with a username/password), otherwise create a new one.
+        user = User.objects.filter(email__iexact=email).first()
+        created = False
+        if user is None:
+            user = User.objects.create_user(
+                username=self._unique_username(email),
+                email=email,
+            )
+            user.set_unusable_password()  # Google-only account, no local password
+            user.save()
+            created = True
+
+        # Ensure a profile exists. New users get one here; existing users keep theirs.
+        UserProfile.objects.get_or_create(
+            user=user,
+            defaults={'display_name': name},
+        )
+
+        login(request, user)
+        return Response({'message': 'Logged in', 'username': user.username, 'created': created})
+
+    @staticmethod
+    def _unique_username(email):
+        base = (email.split('@')[0] or 'user')[:140]
+        username = base
+        suffix = 1
+        while User.objects.filter(username=username).exists():
+            suffix += 1
+            username = f'{base}{suffix}'
+        return username
 
 
 # -------------------------------------------------------------------

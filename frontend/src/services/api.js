@@ -51,6 +51,7 @@ async function request(path, options = {}) {
 export const auth = {
   register: (data) => request('/auth/register/', { method: 'POST', body: JSON.stringify(data) }),
   login: (data) => request('/auth/login/', { method: 'POST', body: JSON.stringify(data) }),
+  google: (credential) => request('/auth/google/', { method: 'POST', body: JSON.stringify({ credential }) }),
   logout: () => request('/auth/logout/', { method: 'POST' }),
 };
 
