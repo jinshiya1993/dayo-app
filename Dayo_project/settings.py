@@ -142,6 +142,13 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     SESSION_COOKIE_SECURE = True
 
+# Allow popups we open (e.g. the Google Sign-In popup) to keep their
+# window.opener reference. Django's SecurityMiddleware defaults this to
+# 'same-origin', which severs the opener and breaks Google's popup so it
+# can never post the credential back. 'same-origin-allow-popups' keeps the
+# protection for cross-origin pages while permitting our own popups.
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
+
 # Google Gemini API
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 
