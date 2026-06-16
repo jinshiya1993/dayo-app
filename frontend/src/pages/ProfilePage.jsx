@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { profile as profileApi, members as membersApi, auth } from '../services/api';
+import { clearCache, getCached } from '../services/cache';
 
 const ROLE_OPTIONS = [
   { value: 'child', label: 'Child' },
@@ -17,9 +18,14 @@ const EMPTY_MEMBER_FORM = { name: '', date_of_birth: '', role: 'child', interest
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const [profileData, setProfileData] = useState(null);
-  const [memberList, setMemberList] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from the shared api cache so revisiting this tab paints instantly
+  // instead of flashing the spinner while it refetches.
+  const [profileData, setProfileData] = useState(getCached('profile') ?? null);
+  const [memberList, setMemberList] = useState(() => {
+    const m = getCached('members');
+    return Array.isArray(m) ? m : [];
+  });
+  const [loading, setLoading] = useState(getCached('profile') === undefined);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [showMemberForm, setShowMemberForm] = useState(false);
@@ -33,7 +39,7 @@ export default function ProfilePage() {
   }, []);
 
   async function loadProfile() {
-    setLoading(true);
+    if (getCached('profile') === undefined) setLoading(true);
     const [prof, ms] = await Promise.all([
       profileApi.get(),
       membersApi.list(),
@@ -130,6 +136,7 @@ export default function ProfilePage() {
 
   async function handleLogout() {
     await auth.logout();
+    clearCache();
     navigate('/auth');
   }
 

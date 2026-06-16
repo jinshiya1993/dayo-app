@@ -1,3 +1,5 @@
+import { getCached, setCached, clearCached, clearCache } from './cache';
+
 const API_BASE = process.env.NODE_ENV === 'production' ? '/api/v1' : 'http://localhost:8000/api/v1';
 
 function getCookie(name) {
@@ -55,11 +57,41 @@ export const auth = {
   logout: () => request('/auth/logout/', { method: 'POST' }),
 };
 
+// Write-through cache for GETs that nearly every page requests (profile,
+// members). First call hits the network and caches; later calls return the
+// cached value until a mutation below invalidates it. Single-user app, so all
+// writes go through these functions — the cache is never silently stale.
+async function cachedGet(key, fetcher) {
+  const cached = getCached(key);
+  if (cached !== undefined) return cached;
+  const fresh = await fetcher();
+  if (!fresh.error) setCached(key, fresh);
+  return fresh;
+}
+
 // Profile
 export const profile = {
-  get: () => request('/profile/'),
-  update: (data) => request('/profile/', { method: 'PATCH', body: JSON.stringify(data) }),
-  saveLayout: (layout) => request('/profile/layout/', { method: 'PATCH', body: JSON.stringify({ custom_layout: layout }) }),
+  get: () => cachedGet('profile', () => request('/profile/')),
+  // Auth/onboarding gate: always hits the network so onboarding_complete is
+  // never read from a stale cache. Refreshes the cache as a side effect, which
+  // keeps profile.get() fresh on every navigation (App calls this per route).
+  getFresh: () => {
+    const p = request('/profile/');
+    p.then((d) => { if (!d.error) setCached('profile', d); }).catch(() => {});
+    return p;
+  },
+  update: async (data) => {
+    const result = await request('/profile/', { method: 'PATCH', body: JSON.stringify(data) });
+    if (!result.error) setCached('profile', result);
+    return result;
+  },
+  // Layout changes reshape the dashboard too — clear everything so the
+  // dashboard snapshot and profile both refetch on next view.
+  saveLayout: async (layout) => {
+    const result = await request('/profile/layout/', { method: 'PATCH', body: JSON.stringify({ custom_layout: layout }) });
+    if (!result.error) clearCache();
+    return result;
+  },
 };
 
 // Sections registry
@@ -71,10 +103,22 @@ export const sections = {
 // as a backward-compat alias so existing pages keep working until they
 // migrate to `members`.)
 export const members = {
-  list: () => request('/members/'),
-  create: (data) => request('/members/', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id, data) => request(`/members/${id}/`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id) => request(`/members/${id}/`, { method: 'DELETE' }),
+  list: () => cachedGet('members', () => request('/members/')),
+  create: async (data) => {
+    const r = await request('/members/', { method: 'POST', body: JSON.stringify(data) });
+    if (!r.error) clearCached('members');
+    return r;
+  },
+  update: async (id, data) => {
+    const r = await request(`/members/${id}/`, { method: 'PUT', body: JSON.stringify(data) });
+    if (!r.error) clearCached('members');
+    return r;
+  },
+  delete: async (id) => {
+    const r = await request(`/members/${id}/`, { method: 'DELETE' });
+    if (!r.error) clearCached('members');
+    return r;
+  },
 };
 export const children = members;
 
@@ -186,7 +230,11 @@ export const reminders = {
 
 // Onboarding (form-based)
 export const onboarding = {
-  complete: (profileData) => request('/onboarding/complete/', { method: 'POST', body: JSON.stringify(profileData) }),
+  complete: async (profileData) => {
+    const r = await request('/onboarding/complete/', { method: 'POST', body: JSON.stringify(profileData) });
+    if (!r.error) clearCache(); // fresh profile + members for the new dashboard
+    return r;
+  },
 };
 
 // Kids Activities

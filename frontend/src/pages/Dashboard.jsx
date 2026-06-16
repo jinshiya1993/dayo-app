@@ -8,24 +8,39 @@ import {
   profile as profileApi, children as childrenApi,
   kidsActivities, grocery,
 } from '../services/api';
+import { getCached, setCached } from '../services/cache';
+
+const CACHE_KEY = 'dashboard';
 
 export default function Dashboard() {
-  const [profileData, setProfileData] = useState(null);
-  const [childList, setChildList] = useState([]);
-  const [plan, setPlan] = useState(null);
-  const [upcomingReminders, setUpcomingReminders] = useState([]);
+  // Seed from the module-level cache so coming back from the recipe page (or
+  // any other route) renders the last-loaded dashboard instantly instead of
+  // showing the full-screen spinner and refetching from scratch.
+  const cached = getCached(CACHE_KEY);
+  const [profileData, setProfileData] = useState(cached?.profileData ?? null);
+  const [childList, setChildList] = useState(cached?.childList ?? []);
+  const [plan, setPlan] = useState(cached?.plan ?? null);
+  const [upcomingReminders, setUpcomingReminders] = useState(cached?.reminders ?? []);
   const [planning, setPlanning] = useState(false);
   const [planError, setPlanError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
 
   const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
-    loadDashboard();
-  }, []);
+    // With cached data we already show the dashboard, so revalidate quietly
+    // (no blocking spinner). First-ever load shows the spinner.
+    loadDashboard({ silent: !!cached });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadDashboard() {
-    setLoading(true);
+  // Merge onto the latest cached snapshot (not closure state, which can be
+  // stale inside callbacks) so partial updates never clobber other fields.
+  function cacheDashboard(next) {
+    setCached(CACHE_KEY, { ...(getCached(CACHE_KEY) || {}), ...next });
+  }
+
+  async function loadDashboard({ silent = false } = {}) {
+    if (!silent) setLoading(true);
     const [prof, ch, todayPlan, rem] = await Promise.all([
       profileApi.get(),
       childrenApi.list(),
@@ -33,6 +48,7 @@ export default function Dashboard() {
       remindersApi.upcoming(),
     ]);
 
+    const nextProfile = !prof.error ? prof : profileData;
     if (!prof.error) setProfileData(prof);
     const allMembers = !ch.error && Array.isArray(ch) ? ch : [];
     const children = allMembers.filter((m) => (m.role || 'child') === 'child');
@@ -40,8 +56,16 @@ export default function Dashboard() {
 
     const hasPlan = todayPlan && !todayPlan.error;
     if (hasPlan) setPlan(todayPlan);
+    const nextReminders = !rem.error ? rem : upcomingReminders;
     if (!rem.error) setUpcomingReminders(rem);
     setLoading(false);
+
+    cacheDashboard({
+      profileData: nextProfile,
+      childList: children,
+      plan: hasPlan ? todayPlan : plan,
+      reminders: nextReminders,
+    });
 
     if (!hasPlan) {
       runPlanGeneration(children);
@@ -60,6 +84,7 @@ export default function Dashboard() {
     setPlan(result);
     const rem = await remindersApi.upcoming();
     if (!rem.error) setUpcomingReminders(rem);
+    cacheDashboard({ plan: result, reminders: !rem.error ? rem : upcomingReminders });
 
     // Fire kids + grocery as separate requests so each runs on a fresh
     // worker and memory is released between AI calls. Sequential on
@@ -127,7 +152,11 @@ export default function Dashboard() {
             profileData={profileData}
             childList={childList}
             planDate={today}
-            onPlanUpdate={(updatedPlanData) => setPlan(prev => ({ ...prev, plan_data: updatedPlanData }))}
+            onPlanUpdate={(updatedPlanData) => setPlan(prev => {
+              const next = { ...prev, plan_data: updatedPlanData };
+              cacheDashboard({ plan: next });
+              return next;
+            })}
           />
         </>
       )}

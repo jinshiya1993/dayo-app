@@ -32,7 +32,10 @@ function App() {
   }, [location.pathname]);
 
   async function checkAuth() {
-    const result = await profile.get();
+    // Always hit the network here — this is the auth + onboarding gate, so it
+    // must never read a stale cached profile. It also refreshes the profile
+    // cache on every navigation, keeping profile.get() fresh for the pages.
+    const result = await profile.getFresh();
     if (result.error === 'unauthorized') {
       setAuthed(false);
     } else if (!result.error) {

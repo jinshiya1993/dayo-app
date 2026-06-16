@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { events, children as childrenApi, profile as profileApi } from '../services/api';
+import { getCached, setCached } from '../services/cache';
+
+const EVENTS_KEY = 'schedule-events';
 
 const FILTER_TABS = [
   { key: 'all', label: 'All' },
@@ -103,10 +106,15 @@ const EMPTY_FORM = {
 };
 
 export default function SchedulePage() {
-  const [allEvents, setAllEvents] = useState([]);
-  const [childList, setChildList] = useState([]);
-  const [profileData, setProfileData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Seed from cache so switching back to this tab paints instantly. Events are
+  // schedule-specific (page cache); profile/members come from the shared api cache.
+  const [allEvents, setAllEvents] = useState(getCached(EVENTS_KEY) ?? []);
+  const [childList, setChildList] = useState(() => {
+    const m = getCached('members');
+    return Array.isArray(m) ? m.filter((c) => (c.role || 'child') === 'child') : [];
+  });
+  const [profileData, setProfileData] = useState(getCached('profile') ?? null);
+  const [loading, setLoading] = useState(getCached(EVENTS_KEY) === undefined);
   const [filter, setFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -116,13 +124,17 @@ export default function SchedulePage() {
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    setLoading(true);
+    if (getCached(EVENTS_KEY) === undefined) setLoading(true);
     const [ev, ch, prof] = await Promise.all([
       events.list('active=true'),
       childrenApi.list(),
       profileApi.get(),
     ]);
-    if (!ev.error) setAllEvents(Array.isArray(ev) ? ev : []);
+    if (!ev.error) {
+      const list = Array.isArray(ev) ? ev : [];
+      setAllEvents(list);
+      setCached(EVENTS_KEY, list);
+    }
     if (!ch.error) setChildList(
       Array.isArray(ch) ? ch.filter((m) => (m.role || 'child') === 'child') : []
     );
