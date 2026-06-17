@@ -26,8 +26,6 @@ export default function GrocerySection({ profileData }) {
   const COLLAPSED_LIMIT = 8;
 
   // Load current grocery list
-  // Revalidate silently — the spinner only shows on the first-ever load (when
-  // there's no cache), so coming back never blanks the list.
   const loadGrocery = useCallback(async () => {
     const res = await groceryApi.current();
     if (!res.error) setGroceryList(res);
@@ -35,7 +33,14 @@ export default function GrocerySection({ profileData }) {
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadGrocery(); }, [loadGrocery]);
+  // grocery/current regenerates the list on the server when it's missing (a
+  // slow AI call), so only fetch on the first-ever load. On return we render
+  // from cache instantly and skip the expensive call; the mutations below keep
+  // the cache correct.
+  useEffect(() => {
+    if (cached === undefined) loadGrocery();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Write data back to the cache on every change (load + add/toggle/delete/done).
   useEffect(() => { setCached(CACHE_KEY, groceryList); }, [groceryList]);

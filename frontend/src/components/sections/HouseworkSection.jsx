@@ -59,7 +59,6 @@ export default function HouseworkSection({ profileData }) {
 
   const isHelper = profileData?.home_help_type === 'partial_help' || profileData?.home_help_type === 'full_maid';
 
-  // Revalidate silently — the spinner only shows on the first-ever load.
   const loadCurrent = useCallback(async () => {
     const res = await houseworkApi.current();
     if (!res.error) {
@@ -74,7 +73,14 @@ export default function HouseworkSection({ profileData }) {
     }
   }, []);
 
-  useEffect(() => { loadCurrent(); }, [loadCurrent]);
+  // housework/current 404s when there's no list, which triggers a slow
+  // generate() and the "Setting up tasks…" spinner. So only run it on the
+  // first-ever load — on return we render from cache and skip the regenerate;
+  // the mutations below keep the cache correct.
+  useEffect(() => {
+    if (cached === undefined) loadCurrent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Write data back to the cache on every change (load + add/toggle/delete).
   useEffect(() => { setCached(CACHE_KEY, hwList); }, [hwList]);
