@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { housework as houseworkApi } from '../../services/api';
+import { getCached, setCached } from '../../services/cache';
+
+const CACHE_KEY = 'sec:housework';
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -37,8 +40,10 @@ function getTaskIcon(taskName) {
 }
 
 export default function HouseworkSection({ profileData }) {
-  const [hwList, setHwList] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Seed from the module cache so returning to the dashboard renders instantly.
+  const cached = getCached(CACHE_KEY);
+  const [hwList, setHwList] = useState(cached === undefined ? null : cached);
+  const [loading, setLoading] = useState(cached === undefined);
   const [generating, setGenerating] = useState(false);
   const [showAddInput, setShowAddInput] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -54,8 +59,8 @@ export default function HouseworkSection({ profileData }) {
 
   const isHelper = profileData?.home_help_type === 'partial_help' || profileData?.home_help_type === 'full_maid';
 
+  // Revalidate silently — the spinner only shows on the first-ever load.
   const loadCurrent = useCallback(async () => {
-    setLoading(true);
     const res = await houseworkApi.current();
     if (!res.error) {
       setHwList(res);
@@ -70,6 +75,9 @@ export default function HouseworkSection({ profileData }) {
   }, []);
 
   useEffect(() => { loadCurrent(); }, [loadCurrent]);
+
+  // Write data back to the cache on every change (load + add/toggle/delete).
+  useEffect(() => { setCached(CACHE_KEY, hwList); }, [hwList]);
 
   async function handleToggleCheck(taskId) {
     if (!hwList) return;

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { customSection as api } from '../../services/api';
+import { getCached, setCached } from '../../services/cache';
 
 // Color palette for custom section icons — distinct from housework
 const SECTION_COLORS = {
@@ -24,16 +25,19 @@ function getSectionColor(sectionKey, label) {
 }
 
 export default function CustomSection({ sectionKey, label }) {
-  const [csList, setCsList] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Seed from the module cache so returning to the dashboard renders instantly.
+  const cacheKey = `sec:custom:${sectionKey}`;
+  const cached = getCached(cacheKey);
+  const [csList, setCsList] = useState(cached === undefined ? null : cached);
+  const [loading, setLoading] = useState(cached === undefined);
   const [generating, setGenerating] = useState(false);
 
   // Capitalize each word in the label
   const displayLabel = label.replace(/\b\w/g, c => c.toUpperCase());
   const colors = getSectionColor(sectionKey, label);
 
+  // Revalidate silently — the spinner only shows on the first-ever load.
   const loadCurrent = useCallback(async () => {
-    setLoading(true);
     const res = await api.current(sectionKey);
     if (!res.error) {
       setCsList(res);
@@ -48,6 +52,9 @@ export default function CustomSection({ sectionKey, label }) {
   }, [sectionKey]);
 
   useEffect(() => { loadCurrent(); }, [loadCurrent]);
+
+  // Write data back to the cache on every change (load + toggle).
+  useEffect(() => { setCached(cacheKey, csList); }, [cacheKey, csList]);
 
   async function handleToggle(taskId) {
     if (!csList) return;

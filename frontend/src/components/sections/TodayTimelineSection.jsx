@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { timeline } from '../../services/api';
+import { getCached, setCached } from '../../services/cache';
+
+const CACHE_KEY = 'sec:timeline';
 
 // Per-kind colors and inline SVG icons. Matches the warm palette used
 // elsewhere on the dashboard. Each entry: { bg, fg, icon }.
@@ -21,12 +24,19 @@ function styleFor(kind) {
 
 export default function TodayTimelineSection() {
   const navigate = useNavigate();
-  const [items, setItems] = useState([]);
-  const [checked, setChecked] = useState(new Set());
-  const [loading, setLoading] = useState(true);
+  // Seed from the module cache so returning to the dashboard renders instantly.
+  const cached = getCached(CACHE_KEY);
+  const [items, setItems] = useState(cached?.items ?? []);
+  const [checked, setChecked] = useState(() => new Set(cached?.checked_keys ?? []));
+  const [loading, setLoading] = useState(cached === undefined);
   const [error, setError] = useState('');
 
   useEffect(() => { load(); }, []);
+
+  // Write data back to the cache on every change (load + optimistic toggles).
+  useEffect(() => {
+    setCached(CACHE_KEY, { items, checked_keys: [...checked] });
+  }, [items, checked]);
 
   async function load() {
     setError('');

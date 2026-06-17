@@ -54,7 +54,7 @@ export const auth = {
   register: (data) => request('/auth/register/', { method: 'POST', body: JSON.stringify(data) }),
   login: (data) => request('/auth/login/', { method: 'POST', body: JSON.stringify(data) }),
   google: (credential) => request('/auth/google/', { method: 'POST', body: JSON.stringify({ credential }) }),
-  logout: () => request('/auth/logout/', { method: 'POST' }),
+  logout: () => { clearCache(); return request('/auth/logout/', { method: 'POST' }); },
 };
 
 // Write-through cache for GETs that nearly every page requests (profile,

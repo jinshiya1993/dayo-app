@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { events } from '../../services/api';
+import { getCached, setCached } from '../../services/cache';
+
+const CACHE_KEY = 'sec:schedule';
 
 function getTodayEvents(allEvents) {
   const jsDay = new Date().getDay();
@@ -97,12 +100,15 @@ function getEventEmoji(ev) {
 }
 
 export default function TodaysScheduleSection({ onUrgentEvent }) {
-  const [todayEvents, setTodayEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from the module cache so returning to the dashboard renders instantly.
+  const cached = getCached(CACHE_KEY);
+  const [todayEvents, setTodayEvents] = useState(cached ?? []);
+  const [loading, setLoading] = useState(cached === undefined);
   const [now, setNow] = useState(new Date());
   const navigate = useNavigate();
 
   useEffect(() => { loadEvents(); }, []);
+  useEffect(() => { setCached(CACHE_KEY, todayEvents); }, [todayEvents]);
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);

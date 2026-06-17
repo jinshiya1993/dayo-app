@@ -1,9 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { grocery as groceryApi, pantry as pantryApi } from '../../services/api';
+import { getCached, setCached } from '../../services/cache';
+
+const CACHE_KEY = 'sec:grocery';
 
 export default function GrocerySection({ profileData }) {
-  const [groceryList, setGroceryList] = useState(null);
-  const [loading, setLoading] = useState(false);
+  // Seed from the module cache so returning to the dashboard renders instantly.
+  const cached = getCached(CACHE_KEY);
+  const [groceryList, setGroceryList] = useState(cached === undefined ? null : cached);
+  const [loading, setLoading] = useState(cached === undefined);
   const [generating, setGenerating] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [showAddInput, setShowAddInput] = useState(false);
@@ -21,8 +26,9 @@ export default function GrocerySection({ profileData }) {
   const COLLAPSED_LIMIT = 8;
 
   // Load current grocery list
+  // Revalidate silently — the spinner only shows on the first-ever load (when
+  // there's no cache), so coming back never blanks the list.
   const loadGrocery = useCallback(async () => {
-    setLoading(true);
     const res = await groceryApi.current();
     if (!res.error) setGroceryList(res);
     else setGroceryList(null);
@@ -30,6 +36,9 @@ export default function GrocerySection({ profileData }) {
   }, []);
 
   useEffect(() => { loadGrocery(); }, [loadGrocery]);
+
+  // Write data back to the cache on every change (load + add/toggle/delete/done).
+  useEffect(() => { setCached(CACHE_KEY, groceryList); }, [groceryList]);
 
   async function handleGenerate() {
     setGenerating(true);

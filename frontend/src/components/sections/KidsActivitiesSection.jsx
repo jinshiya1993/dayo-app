@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { kidsActivities } from '../../services/api';
+import { getCached, setCached } from '../../services/cache';
+
+const CACHE_KEY = 'sec:kids';
 
 const ACTIVITY_ICONS = {
   number_tracing: '🔢', letter_tracing: '🔤', counting: '🧮',
@@ -28,9 +31,11 @@ const STORY_GRADIENTS = [
 ];
 
 export default function KidsActivitiesSection() {
-  const [plan, setPlan] = useState(null);
-  const [hasChildren, setHasChildren] = useState(true);
-  const [loading, setLoading] = useState(true);
+  // Seed from the module cache so returning to the dashboard renders instantly.
+  const cached = getCached(CACHE_KEY);
+  const [plan, setPlan] = useState(cached?.plan ?? null);
+  const [hasChildren, setHasChildren] = useState(cached?.hasChildren ?? true);
+  const [loading, setLoading] = useState(cached === undefined);
   const [selectedChild, setSelectedChild] = useState(0);
   const [openSection, setOpenSection] = useState(null);
   const [markingRead, setMarkingRead] = useState(null);
@@ -45,6 +50,9 @@ export default function KidsActivitiesSection() {
     }
     setLoading(false);
   }, []);
+
+  // Write data back to the cache on every change (load + mark-read + retry).
+  useEffect(() => { setCached(CACHE_KEY, { plan, hasChildren }); }, [plan, hasChildren]);
 
   const handleRetry = async () => {
     setRetrying(true);
