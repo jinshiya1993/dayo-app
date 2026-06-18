@@ -39,42 +39,6 @@ HOMEMAKER_JSON = """{
   "quick_chips": ["Specific action chip 1", "Specific action chip 2", "Specific action chip 3"]
 }"""
 
-WORKING_MOM_JSON = """{
-  "user_type": "working_mom",
-  "work_schedule": {
-    "start": "09:00",
-    "end": "17:00",
-    "type": "office/remote/hybrid",
-    "commute_mins": 30
-  },
-  "class_alerts": [
-    {"child": "Child name", "class": "Class name", "time": "17:00", "leave_by": "16:30"}
-  ],
-  "meals": {
-    "breakfast": {"name": "Meal name", "prep_mins": 10, "kcal": 320, "description": "Quick description", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["High protein", "Quick"], "pairings": [{"for": "Kid name", "with": "Toast with jam", "why": "easy, kid-friendly"}]},
-    "lunch":     {"name": "Meal name", "prep_mins": 5, "kcal": 520, "description": "Packed or ordered", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["Office-friendly", "Balanced"], "pairings": [{"for": "Kid name", "with": "Plain rice", "why": "simpler for kids"}]},
-    "dinner":    {"name": "Meal name", "prep_mins": 30, "kcal": 580, "description": "Quick description", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2", "Step 3", "Step 4"], "tags": ["Family-friendly", "Quick"], "pairings": [{"for": "Kid name", "with": "Plain chappathi", "why": "easy, kid-friendly"}]},
-    "snack":     {"name": "Single snack dish (no lists)", "prep_mins": 5, "kcal": 180, "description": "Brief one-line description", "ingredients": ["ingredient 1", "ingredient 2"], "steps": ["Step 1", "Step 2"], "tags": ["Quick", "Office-friendly"], "pairings": [{"for": "Kid name", "with": "Apple slices", "why": "easier for kids"}]}
-  },
-  "kids_activities": [
-    {"child": "Child name", "age": 3, "activity": "Activity name", "duration": "30 mins", "when": "after school", "materials": ["item1"]}
-  ],
-  "priorities": [
-    {"number": 1, "title": "Task name", "notes": "Brief note", "urgency": "today", "done": false}
-  ],
-  "evening_routine": {
-    "start": "18:00",
-    "tasks": ["Pick up kids", "Dinner prep", "Bath time", "Bedtime story"]
-  },
-  "selfcare": {"activity": "Reading", "time": "21:00", "duration": "30 mins"},
-  "grocery_list": {
-    "Vegetables": ["Onion", "Tomato"],
-    "Dairy": ["Milk"]
-  },
-  "notes": "Any note for the day",
-  "quick_chips": ["Specific action chip 1", "Specific action chip 2", "Specific action chip 3"]
-}"""
-
 NEW_MOM_JSON = """{
   "user_type": "new_mom",
   "morning_greeting": "1-2 sentence warm personalised greeting for the mom based on her situation",
@@ -101,7 +65,6 @@ NEW_MOM_JSON = """{
 }"""
 
 JSON_TEMPLATES = {
-    'working_mom': WORKING_MOM_JSON,
     'new_mom': NEW_MOM_JSON,
     'parent': HOMEMAKER_JSON,
     'homemaker': HOMEMAKER_JSON,
@@ -545,7 +508,7 @@ class PlanGenerator:
 
         # Build housework-specific instructions for user types that have it
         housework_rules = ''
-        if profile.user_type in ('homemaker', 'parent', 'working_mom', 'new_mom'):
+        if profile.user_type in ('homemaker', 'parent', 'new_mom'):
             template_names = self._get_template_tasks(profile, target_date)
 
             if profile.user_type == 'new_mom':
@@ -554,10 +517,7 @@ class PlanGenerator:
                 weekday = target_date.weekday()
                 is_weekend = weekday >= 5
 
-                if profile.user_type == 'working_mom':
-                    target_total = 4 if not is_weekend else 6
-                else:
-                    target_total = 6 if not is_weekend else 8
+                target_total = 6 if not is_weekend else 8
 
                 ai_count = max(1, target_total - len(template_names))
 

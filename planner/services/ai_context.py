@@ -67,14 +67,11 @@ class AIContextAssembler:
             self._schedule_section(target_date),
         ]
 
-        if self.profile.user_type in ('parent', 'new_mom', 'working_mom'):
+        if self.profile.user_type in ('parent', 'new_mom'):
             sections.append(self._children_section())
 
         if self.profile.user_type == 'new_mom':
             sections.append(self._new_mom_section())
-
-        if self.profile.works_outside_home:
-            sections.append(self._work_section(target_date))
 
         fav_section = self._favourites_section()
         if fav_section:
@@ -110,7 +107,7 @@ class AIContextAssembler:
             self._todays_housework_section(target_date),
         ]
 
-        if self.profile.user_type in ('parent', 'new_mom', 'working_mom'):
+        if self.profile.user_type in ('parent', 'new_mom'):
             sections.append(self._children_section())
 
         today_str = target_date.strftime('%Y-%m-%d')
@@ -709,23 +706,6 @@ class AIContextAssembler:
             return "## Academic Schedule\nNo classes or academic events today.\n"
 
         lines = ["## Academic Schedule"]
-        for event in events:
-            end = f"–{event.end_time.strftime('%H:%M')}" if event.end_time else ''
-            line = f"- {event.start_time.strftime('%H:%M')}{end}: {event.title} ({event.get_event_type_display()})"
-            if event.location:
-                line += f" at {event.location}"
-            if event.travel_time_minutes:
-                line += f" (commute: {event.travel_time_minutes} min)"
-            lines.append(line)
-        return '\n'.join(lines) + '\n'
-
-    def _work_section(self, target_date):
-        work_types = ['work_shift', 'meeting']
-        events = self._get_events_for_date(target_date, event_types=work_types)
-        if not events:
-            return "## Work Schedule\nNo work events today.\n"
-
-        lines = ["## Work Schedule"]
         for event in events:
             end = f"–{event.end_time.strftime('%H:%M')}" if event.end_time else ''
             line = f"- {event.start_time.strftime('%H:%M')}{end}: {event.title} ({event.get_event_type_display()})"

@@ -13,7 +13,6 @@ class UserProfile(models.Model):
         HOMEMAKER = 'homemaker', 'Homemaker'
         PARENT = 'parent', 'Homemaker with Kids'
         NEW_MOM = 'new_mom', 'New Mom (Infant)'
-        WORKING_MOM = 'working_mom', 'Working Mom'
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,

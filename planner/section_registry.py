@@ -164,16 +164,6 @@ SECTION_REGISTRY = {
         'lockable': False,
         'category': 'baby',
     },
-
-    # ── Work sections (working parents) ──────────────────────────
-    'priorities': {
-        'label': "Today's priorities",
-        'subtitle': 'Top 3 tasks',
-        'icon': 'priorities',
-        'emoji': '📌',
-        'lockable': False,
-        'category': 'work',
-    },
 }
 
 # ─── Default layouts per user type ────────────────────────────────
@@ -205,16 +195,6 @@ DEFAULT_LAYOUTS = {
         {'key': 'meal_cards', 'visible': True, 'locked': False},
         {'key': 'grocery', 'visible': True, 'locked': False},
         {'key': 'housework', 'visible': True, 'locked': False},
-        {'key': 'me_time', 'visible': True, 'locked': False},
-        {'key': 'notes', 'visible': True, 'locked': False},
-    ],
-    'working_mom': [
-        {'key': 'schedule_alert', 'visible': True, 'locked': False},
-        {'key': 'meal_cards', 'visible': True, 'locked': False},
-        {'key': 'grocery', 'visible': True, 'locked': False},
-        {'key': 'priorities', 'visible': True, 'locked': False},
-        {'key': 'kids_activities', 'visible': True, 'locked': False},
-        {'key': 'evening_routine', 'visible': True, 'locked': False},
         {'key': 'me_time', 'visible': True, 'locked': False},
         {'key': 'notes', 'visible': True, 'locked': False},
     ],
@@ -253,25 +233,19 @@ MODULE_TO_SECTION = {
     'recovery': 'recovery_exercise',
     'milestones': 'milestones',
     'essentials': 'essentials',
-    'priorities': 'priorities',
-    'work': 'priorities',
-    'evening_routine': 'evening_routine',
 }
 
 
 def build_initial_layout(profile):
     """Derive a dashboard layout from the user's actual life data.
 
-    Gates each section on profile.works_outside_home plus the set of
-    children age bands (postpartum <3mo, infant <24mo, kid 2-12yr). There
-    is no single user_type label driving the layout anymore — a working
-    mom with a newborn and a 5-year-old gets the union of all the
-    relevant sections.
+    Gates each section on the set of children age bands (postpartum <3mo,
+    infant <24mo, kid 2-12yr). A parent with a newborn and a 5-year-old
+    gets the union of all the relevant home sections.
     """
     from datetime import date
 
     children = list(profile.members.filter(role='child')) if profile.pk else []
-    works = bool(profile.works_outside_home)
 
     today = date.today()
 
@@ -287,9 +261,6 @@ def build_initial_layout(profile):
 
     ordered = []
     ordered.append('schedule_alert')
-
-    if works:
-        ordered.append('priorities')
 
     # Exactly ONE meal section per dashboard. mom_meals is the one-hand
     # friendly variant saved to plan_data.mom_meals for user_type='new_mom';
@@ -307,9 +278,6 @@ def build_initial_layout(profile):
 
     ordered.append('grocery')
     ordered.append('housework')
-
-    if works and (has_infant or has_kid):
-        ordered.append('evening_routine')
 
     ordered += ['me_time', 'notes']
 

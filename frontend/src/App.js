@@ -7,7 +7,6 @@ import ChatPage from './pages/ChatPage';
 import SchedulePage from './pages/SchedulePage';
 import ProfilePage from './pages/ProfilePage';
 import AuthPage from './pages/AuthPage';
-import OnboardingPage from './pages/OnboardingPage';
 import OnboardingChat from './pages/OnboardingChat';
 import OnboardingForm from './pages/OnboardingForm';
 import OnboardingPreview from './pages/OnboardingPreview';
@@ -26,7 +25,7 @@ function App() {
     // prevents redirect race condition when onboarding_complete becomes true
     if (location.pathname.startsWith('/onboarding')) return;
     // Leaving onboarding before state has refreshed — show loader instead of
-    // flashing the OnboardingPage fallback while checkAuth is in flight.
+    // flashing the onboarding fallback while checkAuth is in flight.
     if (!onboarded) setAuthed(null);
     checkAuth();
   }, [location.pathname]);
@@ -74,7 +73,7 @@ function App() {
   if (!onboarded) {
     return (
       <Routes>
-        <Route path="/onboarding" element={<OnboardingPage />} />
+        <Route path="/onboarding" element={<OnboardingForm />} />
         <Route path="/onboarding/chat" element={<OnboardingChat />} />
         <Route path="/onboarding/form" element={<OnboardingForm />} />
         <Route path="/onboarding/preview" element={<OnboardingPreview />} />

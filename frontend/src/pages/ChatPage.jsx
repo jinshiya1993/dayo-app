@@ -29,7 +29,7 @@ function getDefaultChips(profileData, childList) {
     ];
   }
 
-  // Default — parent, homemaker, working_mom
+  // Default — parent, homemaker
   return [
     "What should I cook tonight?",
     "Activity ideas for kids",

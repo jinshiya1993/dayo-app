@@ -27,7 +27,6 @@ CHIPS: [chip options based on user type]
 The chips should be:
 - parent: ["My mornings are chaos", "I need help with meals", "The kids' schedule is packed", "I just want some me time"]
 - new_mom: ["I'm so tired", "Feeding is overwhelming", "I have no routine yet", "I need help with meals"]
-- working_mom: ["My days are nonstop", "I can't balance work and kids", "Meals are a struggle", "I have no time for myself"]
 - homemaker: ["I cook all day", "I need a routine", "I want time for myself", "The house is never done"]
 - professional: ["My days are back to back", "I can't switch off after work", "I skip meals all the time", "I have no time for myself"]
 - other: ["My days are unstructured", "I need a routine", "Meals are a struggle", "I want to be more productive"]
@@ -65,14 +64,6 @@ For new_mom:
 - How she's feeling: exhausted, settling in, coping?
 - Food: quick meals she can eat, any dietary needs or health conditions
 - Recovery: is she ready for walks/gentle exercise?
-
-For working_mom:
-- Kids: names, ages
-- Work: hours, office/remote, commute
-- The juggle: pickups, after-school, who helps
-- Food: does she cook? pack lunch? what cuisine? how many people at home?
-- Health: any conditions or dietary goals
-- What she wishes she could change
 
 For professional:
 - Work: hours, type, office/remote
@@ -236,7 +227,6 @@ INFERENCE FOR JSON:
 OPENING_CHIPS = {
     'parent': ["My mornings are chaos", "I need help with meals", "The kids' schedule is packed", "I just want some me time"],
     'new_mom': ["I'm so tired", "Feeding is overwhelming", "I have no routine yet", "I need help with meals"],
-    'working_mom': ["My days are nonstop", "I can't balance work and kids", "Meals are a struggle", "I have no time for myself"],
     'homemaker': ["I cook all day", "I need a routine", "I want time for myself", "The house is never done"],
     'professional': ["My days are back to back", "I can't switch off after work", "I skip meals all the time", "I have no time for myself"],
     'other': ["My days are unstructured", "I need a routine", "Meals are a struggle", "I want to be more productive"],

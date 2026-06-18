@@ -8,9 +8,8 @@ const CUISINE_OPTIONS = ['South Indian', 'North Indian', 'Continental', 'Chinese
 const EXCLUSION_OPTIONS = ['Onion', 'Garlic', 'Beef', 'Pork', 'Seafood', 'Mushrooms'];
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// Fixed step order. Dashboard sections are now derived server-side from the
-// works_outside_home flag plus the children added in the Family step, so
-// there's no per-persona step list to branch on.
+// Fixed step order. Dashboard sections are derived server-side from the
+// children added in the Family step, so there's no per-persona step list.
 // 'kids' is conditional — only included when at least one member has role='child'.
 const STEPS_BASE = ['family', 'food', 'grocery', 'kids'];
 
@@ -21,7 +20,7 @@ function toggleInArray(arr, value) {
 export default function OnboardingForm() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { name, worksOutsideHome, city, wakeTime, sleepTime } = location.state || {};
+  const { name } = location.state || {};
 
   const [stepIdx, setStepIdx] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -33,8 +32,7 @@ export default function OnboardingForm() {
   const [health, setHealth] = useState([]);
   const [exclusions, setExclusions] = useState([]);
   const [cuisines, setCuisines] = useState([]);
-  const [secondaryCuisines, setSecondaryCuisines] = useState([]);
-  const [spiceLevel, setSpiceLevel] = useState(3);
+  const [usualFoods, setUsualFoods] = useState('');
   const [groceryDay, setGroceryDay] = useState('');
   const [cookingResponsibility, setCookingResponsibility] = useState('me');
   const [children, setChildren] = useState([]);
@@ -45,11 +43,15 @@ export default function OnboardingForm() {
   const hasChildren = children.some((m) => (m.role || 'child') === 'child');
   const steps = hasChildren ? STEPS_BASE : STEPS_BASE.filter((s) => s !== 'kids');
 
+  // This is now the first onboarding screen (the old "About you" step was
+  // removed), so the name may not arrive via router state — prefill it from
+  // the account/profile instead.
   useEffect(() => {
-    if (!name) {
-      navigate('/onboarding', { replace: true });
-    }
-  }, [name, navigate]);
+    if (name) return;
+    profileApi.get().then((p) => {
+      if (!p?.error) setUserName(p.display_name || p.username || '');
+    });
+  }, [name]);
 
   const currentStep = steps[stepIdx];
   const isLast = stepIdx === steps.length - 1;
@@ -109,14 +111,12 @@ export default function OnboardingForm() {
     const profileData = {
       display_name: (userName || name || '').trim(),
       age: userAge ? Number(userAge) : null,
-      works_outside_home: !!worksOutsideHome,
       family_size: 1 + membersPayload.length,
       dietary_restrictions: dietary,
       health_conditions: health,
       exclusions,
       cuisine_preferences: cuisines,
-      secondary_cuisines: secondaryCuisines,
-      spice_level: spiceLevel,
+      custom_cuisines: usualFoods.trim(),
       grocery_day: groceryDay,
       cooking_responsibility: cookingResponsibility,
       kids_activity_focus: hasChildren ? kidsActivityFocus : [],
@@ -132,13 +132,6 @@ export default function OnboardingForm() {
       alert(result.error || 'Something went wrong. Please try again.');
       return;
     }
-
-    // Save city/wake/sleep in the background — same pattern as the chat flow.
-    const update = {};
-    if (city) update.location_city = city;
-    if (wakeTime) update.wake_time = wakeTime;
-    if (sleepTime) update.sleep_time = sleepTime;
-    if (Object.keys(update).length > 0) profileApi.update(update);
 
     setFadeOut(true);
     setTimeout(() => {
@@ -163,10 +156,8 @@ export default function OnboardingForm() {
           <FoodStep
             cuisines={cuisines}
             setCuisines={setCuisines}
-            secondaryCuisines={secondaryCuisines}
-            setSecondaryCuisines={setSecondaryCuisines}
-            spiceLevel={spiceLevel}
-            setSpiceLevel={setSpiceLevel}
+            usualFoods={usualFoods}
+            setUsualFoods={setUsualFoods}
           />
         )}
         {currentStep === 'grocery' && (
@@ -345,24 +336,7 @@ function Label({ children }) {
   );
 }
 
-const SECONDARY_CUISINE_OPTIONS = [
-  'North Indian', 'Continental', 'Italian', 'Lebanese', 'Mediterranean',
-  'Thai', 'Chinese', 'Japanese', 'Mexican', 'Korean',
-];
-
-const SPICE_LEVELS = [
-  { value: 1, label: 'Mild', emoji: '🥛' },
-  { value: 2, label: 'Light', emoji: '🌿' },
-  { value: 3, label: 'Medium', emoji: '🌶️' },
-  { value: 4, label: 'Hot', emoji: '🌶️🌶️' },
-  { value: 5, label: 'Fire', emoji: '🔥' },
-];
-
-function FoodStep({
-  cuisines, setCuisines,
-  secondaryCuisines, setSecondaryCuisines,
-  spiceLevel, setSpiceLevel,
-}) {
+function FoodStep({ cuisines, setCuisines, usualFoods, setUsualFoods }) {
   return (
     <>
       <div style={mockupBodyStyle}>
@@ -379,62 +353,29 @@ function FoodStep({
       <ChipMultiSelect options={CUISINE_OPTIONS} selected={cuisines} onToggle={(v) => setCuisines(toggleInArray(cuisines, v))} />
 
       <Label>
-        Cuisines you enjoy occasionally
+        Foods you usually eat
         <span style={{ color: '#aaa', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
-          1–2 per week
+          optional
         </span>
       </Label>
-      <ChipMultiSelect
-        options={SECONDARY_CUISINE_OPTIONS}
-        selected={secondaryCuisines}
-        onToggle={(v) => setSecondaryCuisines(toggleInArray(secondaryCuisines, v))}
+      <textarea
+        value={usualFoods}
+        onChange={(e) => setUsualFoods(e.target.value)}
+        placeholder="e.g. dosa & chutney for breakfast, rice with fish curry for lunch, chapati at night…"
+        rows={3}
+        style={usualFoodsStyle}
       />
-
-      <Label>Spice tolerance</Label>
-      <div style={spiceCardStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 500 }}>How spicy do you like food?</div>
-          <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, color: '#C2855A' }}>
-            {spiceLevel} / 5
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {SPICE_LEVELS.map((s) => {
-            const on = spiceLevel === s.value;
-            return (
-              <button
-                key={s.value}
-                type="button"
-                onClick={() => setSpiceLevel(s.value)}
-                style={{
-                  flex: 1,
-                  background: on ? '#C2855A' : '#FAF7F5',
-                  border: '1px solid',
-                  borderColor: on ? '#C2855A' : '#EDE8E3',
-                  borderRadius: 10,
-                  padding: '8px 4px',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  color: on ? 'white' : '#1a1a1a',
-                }}
-              >
-                <div style={{ fontSize: 16, lineHeight: 1, marginBottom: 2 }}>{s.emoji}</div>
-                <div style={{ fontSize: 9, fontWeight: 500 }}>{s.label}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <p style={{ fontSize: 11.5, color: '#9A9A9A', margin: '6px 2px 0' }}>
+        The more specific, the better we match your real meals.
+      </p>
     </>
   );
 }
 
-const spiceCardStyle = {
-  background: 'white',
-  border: '1px solid #EDE8E3',
-  borderRadius: 14,
-  padding: '14px 16px',
-  marginBottom: 14,
+const usualFoodsStyle = {
+  width: '100%', border: '0.5px solid #EDE8E3', borderRadius: 12,
+  padding: '12px 14px', fontSize: 14, outline: 'none', resize: 'vertical',
+  fontFamily: 'inherit', boxSizing: 'border-box', lineHeight: 1.5,
 };
 
 const COOKING_OPTIONS = [

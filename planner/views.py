@@ -2308,7 +2308,6 @@ class OnboardingStartView(APIView):
             'parent': 'parent',
             'new_mom': 'new_mom',
             'homemaker': 'homemaker',
-            'working_mom': 'working_mom',
         }
         db_type = type_map.get(user_type, 'homemaker')
 
@@ -2329,15 +2328,12 @@ class OnboardingStartView(APIView):
         })
 
 
-def _derive_user_type(works_outside_home, children):
-    """Pick a legacy user_type label from the flags + children data.
+def _derive_user_type(children):
+    """Pick a user_type label from the children data.
 
-    Kept as a derived field on UserProfile so plan_generator's per-type
-    JSON schemas, admin filters, and analytics keep working without a
-    bigger refactor. Priority: baby takes precedence to preserve
-    postpartum meal/plan tailoring. The 'professional' type has been
-    retired — adults with no children fall under 'homemaker' regardless
-    of whether they work outside the home.
+    Dayo is home-oriented only. Priority: an infant takes precedence to
+    preserve postpartum meal/plan tailoring; otherwise kids → 'parent' and
+    no children → 'homemaker'.
     """
     from datetime import date
     today = date.today()
@@ -2351,8 +2347,6 @@ def _derive_user_type(works_outside_home, children):
 
     if has_infant:
         return 'new_mom'
-    if has_kid and works_outside_home:
-        return 'working_mom'
     if has_kid:
         return 'parent'
     return 'homemaker'
@@ -2382,14 +2376,15 @@ def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_use
             pass
 
     explicit_user_type = data.get('user_type') or fallback_user_type
-    if 'works_outside_home' in data:
-        profile.works_outside_home = bool(data['works_outside_home'])
-    else:
-        profile.works_outside_home = explicit_user_type == 'working_mom'
+    # Home-oriented app: ignore any retired/work persona labels and derive instead.
+    if explicit_user_type not in ('parent', 'new_mom', 'homemaker'):
+        explicit_user_type = None
+    profile.works_outside_home = False
     profile.dietary_restrictions = data.get('dietary_restrictions', [])
     profile.health_conditions = data.get('health_conditions', [])
     profile.family_size = data.get('family_size', 1)
     profile.cuisine_preferences = data.get('cuisine_preferences', [])
+    profile.custom_cuisines = data.get('custom_cuisines', '')
     profile.secondary_cuisines = data.get('secondary_cuisines', [])
     if data.get('spice_level') is not None:
         try:
@@ -2489,7 +2484,7 @@ def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_use
     if explicit_user_type:
         profile.user_type = explicit_user_type
     else:
-        profile.user_type = _derive_user_type(profile.works_outside_home, children_qs)
+        profile.user_type = _derive_user_type(children_qs)
     profile.custom_layout = build_initial_layout(profile)
     profile.onboarding_complete = True
     profile.save()

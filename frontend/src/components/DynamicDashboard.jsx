@@ -6,9 +6,7 @@ import GrocerySection from './sections/GrocerySection';
 import KidsActivitiesSection from './sections/KidsActivitiesSection';
 import HouseworkSection from './sections/HouseworkSection';
 import MeTimeSection from './sections/MeTimeSection';
-import PrioritiesSection from './sections/PrioritiesSection';
 import ExerciseSection from './sections/ExerciseSection';
-import EveningRoutineSection from './sections/EveningRoutineSection';
 import ErrandsSection from './sections/ErrandsSection';
 import QuickChipsSection from './sections/QuickChipsSection';
 import NotesSection from './sections/NotesSection';
@@ -30,9 +28,7 @@ const SECTIONS = {
   kids_activities:    { component: KidsActivitiesSection, dataKey: null },
   housework:          { component: HouseworkSection, dataKey: null },
   me_time:            { component: MeTimeSection, dataKey: 'selfcare' },
-  priorities:         { component: PrioritiesSection, dataKey: 'priorities' },
   exercise:           { component: ExerciseSection, dataKey: 'exercise' },
-  evening_routine:    { component: EveningRoutineSection, dataKey: 'evening_routine' },
   errands:            { component: ErrandsSection, dataKey: 'errands' },
   quick_chips:        { component: QuickChipsSection, dataKey: null },
   notes:              { component: NotesSection, dataKey: 'notes' },
@@ -50,7 +46,6 @@ const FALLBACK_LAYOUTS = {
   parent:       ['greeting', 'schedule_alert', 'meal_cards', 'grocery', 'kids_activities', 'housework', 'me_time', 'notes', 'quick_chips'],
   new_mom:      ['greeting', 'schedule_alert', 'meal_cards', 'essentials', 'grocery', 'exercise', 'selfcare_list', 'housework', 'me_time', 'notes', 'quick_chips'],
   homemaker:    ['greeting', 'schedule_alert', 'meal_cards', 'grocery', 'housework', 'me_time', 'notes', 'quick_chips'],
-  working_mom:  ['greeting', 'schedule_alert', 'meal_cards', 'grocery', 'priorities', 'kids_activities', 'evening_routine', 'me_time', 'notes', 'quick_chips'],
 };
 
 // ─── Build layout from 3 layers ──────────────────────────────────
@@ -95,8 +90,6 @@ function getQuickChips(planData, childList, layout) {
   if (has('exercise') || has('recovery_exercise')) chips.push('Skip workout today');
   if (has('selfcare_list') || has('me_time') || has('mom_rest')) chips.push('I need a break');
   if (has('grocery')) chips.push('Skip grocery');
-  if (has('meetings')) chips.push('Reschedule meeting');
-  if (has('priorities')) chips.push('Add a task');
   if (has('baby_schedule')) chips.push('Feeding trouble');
 
   return [...new Set(chips)].slice(0, 3);

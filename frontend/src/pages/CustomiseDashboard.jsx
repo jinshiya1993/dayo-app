@@ -6,8 +6,7 @@ import { profile as profileApi, sections as sectionsApi } from '../services/api'
 const USER_TYPE_CATEGORIES = {
   parent: ['essentials', 'kids', 'tasks', 'wellness', 'routine', 'other'],
   new_mom: ['essentials', 'baby', 'wellness', 'tasks', 'other'],
-  homemaker: ['essentials', 'tasks', 'wellness', 'work', 'other'],
-  working_mom: ['essentials', 'kids', 'tasks', 'wellness', 'work', 'routine', 'other'],
+  homemaker: ['essentials', 'tasks', 'wellness', 'other'],
 };
 
 export default function CustomiseDashboard() {

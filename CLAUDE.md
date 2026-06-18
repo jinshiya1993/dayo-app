@@ -58,24 +58,25 @@ Dayo.app/
 3. **Layer 3 — User customisation:** Manual add/remove/reorder sections anytime
 Stored in `UserProfile.custom_layout` JSONField.
 
-### User Types
-- `parent` — Homemaker with kids
-- `new_mom` — New mom with infant
-- `working_mom` — Working mother
-- `homemaker` — Homemaker without kids
-- `professional` — Working professional
+### User Types (home-oriented only)
+Derived server-side from the children added during onboarding (see
+`_derive_user_type` in views.py) — the app no longer has a work-oriented dashboard.
+- `homemaker` — no children
+- `parent` — has a child (2-12y)
+- `new_mom` — has an infant (<24mo)
 
 ### Plan Generation
 Each user type gets a different JSON structure from the AI:
-- Parent: meals, class_alerts, kids_activities, grocery, housework
+- Parent / homemaker: meals, class_alerts, kids_activities, grocery, housework
 - New mom: baby_schedule, mom_rest, mom_meals, recovery_exercise, milestones
-- Professional: deep_work, priorities, meetings, meals (compact)
 
 ### Onboarding Flow
-1. Form: name + user type + city + wake/sleep
-2. AI chat: conversational profile building (3-5 exchanges). On completion, city/wake/sleep are saved in the background during the fade-out, then navigates straight to preview — no interstitial loading screen.
-3. Preview: show what was built, remove sections with ×, add from the registry list, or add a custom section via the "Add a section" dashed CTA.
-4. Confirm → inline "Creating your plan..." overlay runs `plans.generate()` → Dashboard.
+1. Form (`OnboardingForm`, the first screen): household/members + food + grocery + kids steps. Name is prefilled from the account. (The old separate "About you" page was removed.)
+2. Preview: show what was built, remove sections with ×, add from the registry list, or add a custom section via the "Add a section" dashed CTA.
+3. Confirm → inline "Creating your plan..." overlay runs `plans.generate()` → Dashboard.
+
+Note: an AI-chat onboarding (`OnboardingChat` + `profile_builder.py`) exists at
+`/onboarding/chat` but is currently not linked into the flow.
 
 ## Commands
 ```bash
