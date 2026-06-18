@@ -158,6 +158,12 @@ export default function OnboardingForm() {
             setCuisines={setCuisines}
             usualFoods={usualFoods}
             setUsualFoods={setUsualFoods}
+            dietary={dietary}
+            setDietary={setDietary}
+            health={health}
+            setHealth={setHealth}
+            exclusions={exclusions}
+            setExclusions={setExclusions}
           />
         )}
         {currentStep === 'grocery' && (
@@ -173,12 +179,6 @@ export default function OnboardingForm() {
             setUserName={setUserName}
             userAge={userAge}
             setUserAge={setUserAge}
-            dietary={dietary}
-            setDietary={setDietary}
-            health={health}
-            setHealth={setHealth}
-            exclusions={exclusions}
-            setExclusions={setExclusions}
             members={children}
             addMember={addMember}
             updateMember={updateChild}
@@ -336,7 +336,7 @@ function Label({ children }) {
   );
 }
 
-function FoodStep({ cuisines, setCuisines, usualFoods, setUsualFoods }) {
+function FoodStep({ cuisines, setCuisines, usualFoods, setUsualFoods, dietary, setDietary, health, setHealth, exclusions, setExclusions }) {
   return (
     <>
       <div style={mockupBodyStyle}>
@@ -368,6 +368,20 @@ function FoodStep({ cuisines, setCuisines, usualFoods, setUsualFoods }) {
       <p style={{ fontSize: 11.5, color: '#9A9A9A', margin: '6px 2px 0' }}>
         The more specific, the better we match your real meals.
       </p>
+
+      <Label>
+        Dietary preferences
+        <span style={{ color: '#aaa', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
+          for everyone at home
+        </span>
+      </Label>
+      <ChipMultiSelect options={DIETARY_OPTIONS} selected={dietary} onToggle={(v) => setDietary(toggleInArray(dietary, v))} />
+
+      <Label>Health conditions</Label>
+      <ChipMultiSelect options={HEALTH_OPTIONS} selected={health} onToggle={(v) => setHealth(toggleInArray(health, v))} />
+
+      <Label>Foods to avoid</Label>
+      <ChipMultiSelect options={EXCLUSION_OPTIONS} selected={exclusions} onToggle={(v) => setExclusions(toggleInArray(exclusions, v))} />
     </>
   );
 }
@@ -507,7 +521,6 @@ function PencilIcon() {
 
 function MembersStep({
   userName, setUserName, userAge, setUserAge,
-  dietary, setDietary, health, setHealth, exclusions, setExclusions,
   members, addMember, updateMember, removeMember,
 }) {
   const [editingIdx, setEditingIdx] = useState(null);
@@ -529,7 +542,7 @@ function MembersStep({
       <h1 style={mockupHeadingStyle}>
         Who's in your <em style={mockupHeadingEmStyle}>household?</em>
       </h1>
-      <p style={mockupSubtitleStyle}>Add yourself first, then anyone you cook for or with.</p>
+      <p style={mockupSubtitleStyle}>Add yourself first, and your family members.</p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 22 }}>
         {/* YOU card */}
@@ -539,12 +552,6 @@ function MembersStep({
             setUserName={setUserName}
             userAge={userAge}
             setUserAge={setUserAge}
-            dietary={dietary}
-            setDietary={setDietary}
-            health={health}
-            setHealth={setHealth}
-            exclusions={exclusions}
-            setExclusions={setExclusions}
             onDone={() => setEditingYou(false)}
           />
         ) : (
@@ -643,7 +650,6 @@ function MemberRow({ member, onEdit }) {
 function MemberEditCard({ idx, member, onChange, onDone, onRemove }) {
   const isChild = member.role === 'child';
   const showAgeMonths = isChild && member.under_one;
-  const [showOverrides, setShowOverrides] = useState(false);
 
   return (
     <div style={{ ...memberCardStyle, flexDirection: 'column', alignItems: 'stretch', gap: 0, padding: 16 }}>
@@ -697,53 +703,6 @@ function MemberEditCard({ idx, member, onChange, onDone, onRemove }) {
         </>
       )}
 
-      {isChild && (
-        <>
-          <Label>School (optional)</Label>
-          <input
-            className="auth-input"
-            value={member.school_name}
-            onChange={(e) => onChange({ school_name: e.target.value })}
-            placeholder="e.g. Little Stars Preschool"
-            style={{ marginBottom: 10 }}
-          />
-        </>
-      )}
-
-      <button
-        type="button"
-        onClick={() => setShowOverrides((v) => !v)}
-        style={expandToggleStyle}
-      >
-        {showOverrides ? '− Hide dietary / health' : '+ Edit dietary / health'}
-      </button>
-
-      {showOverrides && (
-        <div style={{ marginTop: 10 }}>
-          <p style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
-            These are <i>in addition to</i> the family-wide preferences — leave empty to inherit.
-          </p>
-          <Label>Dietary additions</Label>
-          <ChipMultiSelect
-            options={DIETARY_OPTIONS}
-            selected={member.member_dietary || []}
-            onToggle={(v) => onChange({ member_dietary: toggleInArray(member.member_dietary || [], v) })}
-          />
-          <Label>Health conditions</Label>
-          <ChipMultiSelect
-            options={HEALTH_OPTIONS}
-            selected={member.member_health_conditions || []}
-            onToggle={(v) => onChange({ member_health_conditions: toggleInArray(member.member_health_conditions || [], v) })}
-          />
-          <Label>Foods to avoid</Label>
-          <ChipMultiSelect
-            options={EXCLUSION_OPTIONS}
-            selected={member.member_exclusions || []}
-            onToggle={(v) => onChange({ member_exclusions: toggleInArray(member.member_exclusions || [], v) })}
-          />
-        </div>
-      )}
-
       <button
         type="button"
         onClick={onDone}
@@ -767,7 +726,6 @@ function MemberEditCard({ idx, member, onChange, onDone, onRemove }) {
 
 function YouEditCard({
   userName, setUserName, userAge, setUserAge,
-  dietary, setDietary, health, setHealth, exclusions, setExclusions,
   onDone,
 }) {
   return (
@@ -797,31 +755,6 @@ function YouEditCard({
         onChange={(e) => setUserAge(e.target.value)}
         placeholder="e.g. 32"
         style={{ marginBottom: 14 }}
-      />
-
-      <p style={{ fontSize: 11, color: '#5A5A5A', marginBottom: 8 }}>
-        These set the family-wide defaults — every meal will respect them.
-      </p>
-
-      <Label>Dietary preferences</Label>
-      <ChipMultiSelect
-        options={DIETARY_OPTIONS}
-        selected={dietary}
-        onToggle={(v) => setDietary(toggleInArray(dietary, v))}
-      />
-
-      <Label>Health conditions</Label>
-      <ChipMultiSelect
-        options={HEALTH_OPTIONS}
-        selected={health}
-        onToggle={(v) => setHealth(toggleInArray(health, v))}
-      />
-
-      <Label>Foods to avoid</Label>
-      <ChipMultiSelect
-        options={EXCLUSION_OPTIONS}
-        selected={exclusions}
-        onToggle={(v) => setExclusions(toggleInArray(exclusions, v))}
       />
 
       <button
