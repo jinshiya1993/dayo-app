@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { profile as profileApi, onboarding as onboardingApi } from '../services/api';
+import { profile as profileApi, members as membersApi, onboarding as onboardingApi } from '../services/api';
 
 const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Eggetarian', 'Jain', 'Halal', 'Gluten-free', 'Dairy-free', 'High protein'];
 const CUISINE_OPTIONS = ['South Indian', 'North Indian', 'Continental', 'Chinese', 'Italian', 'Mediterranean'];
@@ -13,6 +13,17 @@ const STEPS_BASE = ['family', 'food', 'diet', 'kids'];
 
 function toggleInArray(arr, value) {
   return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
+}
+
+// Whole months between a date-of-birth string and today (for prefilling the
+// under-1 age, since members come back with a computed year-age only).
+function monthsFromDob(dob) {
+  if (!dob) return 0;
+  const d = new Date(dob);
+  if (isNaN(d)) return 0;
+  const now = new Date();
+  const m = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  return Math.max(0, Math.min(11, m));
 }
 
 export default function OnboardingForm() {
@@ -39,14 +50,46 @@ export default function OnboardingForm() {
   const hasChildren = children.some((m) => (m.role || 'child') === 'child');
   const steps = hasChildren ? STEPS_BASE : STEPS_BASE.filter((s) => s !== 'kids');
 
-  // This is now the first onboarding screen (the old "About you" step was
-  // removed), so the name may not arrive via router state — prefill it from
-  // the account/profile instead.
+  // Prefill the whole form from the saved profile + members. This is the
+  // first onboarding screen and also the "edit" screen reached from the
+  // preview, so for a brand-new user the fields come back empty, and for
+  // someone editing they come back filled — both work. Setters that take the
+  // network value only overwrite the (empty) initial state on mount.
   useEffect(() => {
-    if (name) return;
-    profileApi.get().then((p) => {
-      if (!p?.error) setUserName(p.display_name || p.username || '');
-    });
+    let cancelled = false;
+    (async () => {
+      const [p, mems] = await Promise.all([profileApi.get(), membersApi.list()]);
+      if (cancelled) return;
+      if (p && !p.error) {
+        setUserName((prev) => prev || name || p.display_name || p.username || '');
+        if (p.age != null) setUserAge(String(p.age));
+        if (Array.isArray(p.cuisine_preferences) && p.cuisine_preferences.length) setCuisines(p.cuisine_preferences);
+        if (p.custom_cuisines) setUsualFoods(p.custom_cuisines);
+        if (Array.isArray(p.dietary_restrictions) && p.dietary_restrictions.length) setDietary(p.dietary_restrictions);
+        if (Array.isArray(p.exclusions) && p.exclusions.length) setExclusions(p.exclusions);
+        if (p.notes) setNotes(p.notes);
+        if (Array.isArray(p.kids_activity_focus) && p.kids_activity_focus.length) setKidsActivityFocus(p.kids_activity_focus);
+        if (p.kids_default_difficulty) setKidsDefaultDifficulty(p.kids_default_difficulty);
+        if (p.kids_activity_time_pref) setKidsTimePref(p.kids_activity_time_pref);
+      }
+      if (Array.isArray(mems) && mems.length) {
+        setChildren(mems.map((m) => {
+          const underOne = m.age === 0;
+          return {
+            role: m.role || 'child',
+            name: m.name || '',
+            age: underOne ? 0 : (m.age || 0),
+            age_months: underOne ? monthsFromDob(m.date_of_birth) : 0,
+            under_one: underOne,
+            school_name: m.school_name || '',
+            member_dietary: m.member_dietary || [],
+            member_health_conditions: m.member_health_conditions || [],
+            member_exclusions: m.member_exclusions || [],
+          };
+        }));
+      }
+    })();
+    return () => { cancelled = true; };
   }, [name]);
 
   const currentStep = steps[stepIdx];
@@ -391,11 +434,8 @@ function DietStep({ dietary, setDietary, exclusions, setExclusions, notes, setNo
         rows={3}
         style={usualFoodsStyle}
       />
-      <p style={{ fontSize: 11.5, color: '#9A9A9A', margin: '6px 2px 0' }}>
-        Free text — anything per-person the plan should keep in mind.
-      </p>
-      <p style={{ fontSize: 11, color: '#8A8A8A', fontStyle: 'italic', margin: '10px 2px 0', lineHeight: 1.5 }}>
-        Dayo's meal suggestions are general guidance, not medical advice. Please consult a doctor before following any plan for a health condition.
+      <p style={{ fontSize: 11.5, color: '#9A9A9A', margin: '8px 2px 0', lineHeight: 1.5 }}>
+        Please consult a doctor before following these meals for any health condition — Dayo's suggestions are general guidance, not medical advice.
       </p>
     </>
   );

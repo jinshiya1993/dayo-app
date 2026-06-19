@@ -2422,6 +2422,11 @@ def save_onboarding_profile(user, profile_data, fallback_name=None, fallback_use
     if raw_members is None:
         raw_members = [{**c, 'role': 'child'} for c in data.get('children', [])]
 
+    # Replace the member set so re-submitting (e.g. editing from the preview)
+    # doesn't create duplicates. Onboarding is a first-run flow, so there are
+    # no schedule events tied to these members yet.
+    profile.members.all().delete()
+
     for idx, member_data in enumerate(raw_members, start=1):
         name = (member_data.get('name') or '').strip()
         age = member_data.get('age', 0)
