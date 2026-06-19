@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { profile as profileApi, onboarding as onboardingApi } from '../services/api';
 
 const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Eggetarian', 'Jain', 'Halal', 'Gluten-free', 'Dairy-free', 'High protein'];
-const HEALTH_OPTIONS = ['PCOS', 'Diabetes', 'Hypothyroidism', 'Iron deficiency', 'Lactose intolerant', 'Cholesterol'];
 const CUISINE_OPTIONS = ['South Indian', 'North Indian', 'Continental', 'Chinese', 'Italian', 'Mediterranean'];
 const EXCLUSION_OPTIONS = ['Onion', 'Garlic', 'Beef', 'Pork', 'Seafood', 'Mushrooms'];
 
@@ -28,7 +27,7 @@ export default function OnboardingForm() {
   const [userName, setUserName] = useState(name || '');
   const [userAge, setUserAge] = useState('');
   const [dietary, setDietary] = useState([]);
-  const [health, setHealth] = useState([]);
+  const [notes, setNotes] = useState('');
   const [exclusions, setExclusions] = useState([]);
   const [cuisines, setCuisines] = useState([]);
   const [usualFoods, setUsualFoods] = useState('');
@@ -110,7 +109,6 @@ export default function OnboardingForm() {
       age: userAge ? Number(userAge) : null,
       family_size: 1 + membersPayload.length,
       dietary_restrictions: dietary,
-      health_conditions: health,
       exclusions,
       cuisine_preferences: cuisines,
       custom_cuisines: usualFoods.trim(),
@@ -118,7 +116,7 @@ export default function OnboardingForm() {
       kids_default_difficulty: hasChildren ? kidsDefaultDifficulty : '',
       kids_activity_time_pref: hasChildren ? kidsTimePref : '',
       members: membersPayload,
-      notes: '',
+      notes: notes.trim(),
     };
 
     const result = await onboardingApi.complete(profileData);
@@ -159,10 +157,10 @@ export default function OnboardingForm() {
           <DietStep
             dietary={dietary}
             setDietary={setDietary}
-            health={health}
-            setHealth={setHealth}
             exclusions={exclusions}
             setExclusions={setExclusions}
+            notes={notes}
+            setNotes={setNotes}
           />
         )}
         {currentStep === 'family' && (
@@ -361,7 +359,7 @@ const usualFoodsStyle = {
   fontFamily: 'inherit', boxSizing: 'border-box', lineHeight: 1.5,
 };
 
-function DietStep({ dietary, setDietary, health, setHealth, exclusions, setExclusions }) {
+function DietStep({ dietary, setDietary, exclusions, setExclusions, notes, setNotes }) {
   return (
     <>
       <div style={mockupBodyStyle}>
@@ -377,11 +375,25 @@ function DietStep({ dietary, setDietary, health, setHealth, exclusions, setExclu
       <Label>Dietary preferences</Label>
       <ChipMultiSelect options={DIETARY_OPTIONS} selected={dietary} onToggle={(v) => setDietary(toggleInArray(dietary, v))} />
 
-      <Label>Health conditions</Label>
-      <ChipMultiSelect options={HEALTH_OPTIONS} selected={health} onToggle={(v) => setHealth(toggleInArray(health, v))} />
-
       <Label>Foods to avoid</Label>
       <ChipMultiSelect options={EXCLUSION_OPTIONS} selected={exclusions} onToggle={(v) => setExclusions(toggleInArray(exclusions, v))} />
+
+      <Label>
+        Anything specific to consider?
+        <span style={{ color: '#aaa', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
+          optional
+        </span>
+      </Label>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="e.g. PCOS for mom — low-GI meals; lactose-free for my son; dad is pre-diabetic…"
+        rows={3}
+        style={usualFoodsStyle}
+      />
+      <p style={{ fontSize: 11.5, color: '#9A9A9A', margin: '6px 2px 0' }}>
+        Free text — anything per-person the plan should keep in mind.
+      </p>
     </>
   );
 }
