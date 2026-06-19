@@ -6,12 +6,11 @@ const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Eggetarian', 'Jain', 'Halal', '
 const HEALTH_OPTIONS = ['PCOS', 'Diabetes', 'Hypothyroidism', 'Iron deficiency', 'Lactose intolerant', 'Cholesterol'];
 const CUISINE_OPTIONS = ['South Indian', 'North Indian', 'Continental', 'Chinese', 'Italian', 'Mediterranean'];
 const EXCLUSION_OPTIONS = ['Onion', 'Garlic', 'Beef', 'Pork', 'Seafood', 'Mushrooms'];
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // Fixed step order. Dashboard sections are derived server-side from the
 // children added in the Family step, so there's no per-persona step list.
 // 'kids' is conditional — only included when at least one member has role='child'.
-const STEPS_BASE = ['family', 'food', 'grocery', 'kids'];
+const STEPS_BASE = ['family', 'food', 'diet', 'kids'];
 
 function toggleInArray(arr, value) {
   return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
@@ -33,8 +32,6 @@ export default function OnboardingForm() {
   const [exclusions, setExclusions] = useState([]);
   const [cuisines, setCuisines] = useState([]);
   const [usualFoods, setUsualFoods] = useState('');
-  const [groceryDay, setGroceryDay] = useState('');
-  const [cookingResponsibility, setCookingResponsibility] = useState('me');
   const [children, setChildren] = useState([]);
   const [kidsActivityFocus, setKidsActivityFocus] = useState([]);
   const [kidsDefaultDifficulty, setKidsDefaultDifficulty] = useState('standard');
@@ -117,8 +114,6 @@ export default function OnboardingForm() {
       exclusions,
       cuisine_preferences: cuisines,
       custom_cuisines: usualFoods.trim(),
-      grocery_day: groceryDay,
-      cooking_responsibility: cookingResponsibility,
       kids_activity_focus: hasChildren ? kidsActivityFocus : [],
       kids_default_difficulty: hasChildren ? kidsDefaultDifficulty : '',
       kids_activity_time_pref: hasChildren ? kidsTimePref : '',
@@ -158,19 +153,16 @@ export default function OnboardingForm() {
             setCuisines={setCuisines}
             usualFoods={usualFoods}
             setUsualFoods={setUsualFoods}
+          />
+        )}
+        {currentStep === 'diet' && (
+          <DietStep
             dietary={dietary}
             setDietary={setDietary}
             health={health}
             setHealth={setHealth}
             exclusions={exclusions}
             setExclusions={setExclusions}
-          />
-        )}
-        {currentStep === 'grocery' && (
-          <GroceryStep
-            groceryDay={groceryDay} setGroceryDay={setGroceryDay}
-            cookingResponsibility={cookingResponsibility}
-            setCookingResponsibility={setCookingResponsibility}
           />
         )}
         {currentStep === 'family' && (
@@ -308,15 +300,6 @@ function ChipMultiSelect({ options, selected, onToggle, allowCustom = true }) {
   );
 }
 
-function StepHeading({ title, subtitle }) {
-  return (
-    <div style={{ marginBottom: 18 }}>
-      <h2 style={{ fontFamily: 'Georgia, serif', fontSize: 22, margin: 0 }}>{title}</h2>
-      {subtitle && <p style={{ color: '#888', fontSize: 13, marginTop: 4 }}>{subtitle}</p>}
-    </div>
-  );
-}
-
 function Label({ children }) {
   return (
     <label
@@ -336,7 +319,7 @@ function Label({ children }) {
   );
 }
 
-function FoodStep({ cuisines, setCuisines, usualFoods, setUsualFoods, dietary, setDietary, health, setHealth, exclusions, setExclusions }) {
+function FoodStep({ cuisines, setCuisines, usualFoods, setUsualFoods }) {
   return (
     <>
       <div style={mockupBodyStyle}>
@@ -368,20 +351,6 @@ function FoodStep({ cuisines, setCuisines, usualFoods, setUsualFoods, dietary, s
       <p style={{ fontSize: 11.5, color: '#9A9A9A', margin: '6px 2px 0' }}>
         The more specific, the better we match your real meals.
       </p>
-
-      <Label>
-        Dietary preferences
-        <span style={{ color: '#aaa', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
-          for everyone at home
-        </span>
-      </Label>
-      <ChipMultiSelect options={DIETARY_OPTIONS} selected={dietary} onToggle={(v) => setDietary(toggleInArray(dietary, v))} />
-
-      <Label>Health conditions</Label>
-      <ChipMultiSelect options={HEALTH_OPTIONS} selected={health} onToggle={(v) => setHealth(toggleInArray(health, v))} />
-
-      <Label>Foods to avoid</Label>
-      <ChipMultiSelect options={EXCLUSION_OPTIONS} selected={exclusions} onToggle={(v) => setExclusions(toggleInArray(exclusions, v))} />
     </>
   );
 }
@@ -392,70 +361,27 @@ const usualFoodsStyle = {
   fontFamily: 'inherit', boxSizing: 'border-box', lineHeight: 1.5,
 };
 
-const COOKING_OPTIONS = [
-  { value: 'me', label: 'I cook', sub: 'Recipes will assume your skill level' },
-  { value: 'helper', label: 'Our helper cooks', sub: 'Recipes written step-by-step' },
-  { value: 'eat_out', label: 'We mostly order or eat out', sub: 'Plans focus on dining suggestions' },
-];
-
-function GroceryStep({ groceryDay, setGroceryDay, cookingResponsibility, setCookingResponsibility }) {
+function DietStep({ dietary, setDietary, health, setHealth, exclusions, setExclusions }) {
   return (
     <>
-      <StepHeading title="Cooking & shopping" subtitle="A bit about how food happens at home" />
-
-      <Label>Who does the cooking?</Label>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 18 }}>
-        {COOKING_OPTIONS.map((opt) => {
-          const on = cookingResponsibility === opt.value;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setCookingResponsibility(opt.value)}
-              style={{
-                textAlign: 'left',
-                padding: '12px 14px',
-                borderRadius: 12,
-                border: '0.5px solid',
-                borderColor: on ? '#C2855A' : '#EDE8E3',
-                background: on ? '#FFF8F0' : 'white',
-                color: '#1a1a1a',
-                cursor: 'pointer',
-              }}
-            >
-              <div style={{ fontSize: 14, fontWeight: on ? 600 : 500 }}>{opt.label}</div>
-              <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{opt.sub}</div>
-            </button>
-          );
-        })}
+      <div style={mockupBodyStyle}>
+        <div style={mockupEyebrowStyle}>Step 3 — Dietary needs</div>
+        <h1 style={mockupHeadingStyle}>
+          Anything we should <em style={mockupHeadingEmStyle}>cook around?</em>
+        </h1>
+        <p style={{ ...mockupSubtitleStyle, marginBottom: 22 }}>
+          Set once for everyone at home — every meal will respect these.
+        </p>
       </div>
 
-      <Label>Grocery day <span style={{ color: '#aaa', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></Label>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        {DAYS.map((day) => {
-          const on = groceryDay === day;
-          return (
-            <button
-              key={day}
-              type="button"
-              onClick={() => setGroceryDay(on ? '' : day)}
-              style={{
-                padding: '12px 14px',
-                borderRadius: 12,
-                border: '0.5px solid',
-                borderColor: on ? '#C2855A' : '#EDE8E3',
-                background: on ? '#FFF8F0' : 'white',
-                color: '#1a1a1a',
-                fontSize: 14,
-                fontWeight: on ? 600 : 500,
-                cursor: 'pointer',
-              }}
-            >
-              {day}
-            </button>
-          );
-        })}
-      </div>
+      <Label>Dietary preferences</Label>
+      <ChipMultiSelect options={DIETARY_OPTIONS} selected={dietary} onToggle={(v) => setDietary(toggleInArray(dietary, v))} />
+
+      <Label>Health conditions</Label>
+      <ChipMultiSelect options={HEALTH_OPTIONS} selected={health} onToggle={(v) => setHealth(toggleInArray(health, v))} />
+
+      <Label>Foods to avoid</Label>
+      <ChipMultiSelect options={EXCLUSION_OPTIONS} selected={exclusions} onToggle={(v) => setExclusions(toggleInArray(exclusions, v))} />
     </>
   );
 }
