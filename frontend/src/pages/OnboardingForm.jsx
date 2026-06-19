@@ -394,6 +394,9 @@ function DietStep({ dietary, setDietary, exclusions, setExclusions, notes, setNo
       <p style={{ fontSize: 11.5, color: '#9A9A9A', margin: '6px 2px 0' }}>
         Free text — anything per-person the plan should keep in mind.
       </p>
+      <p style={{ fontSize: 11, color: '#8A8A8A', fontStyle: 'italic', margin: '10px 2px 0', lineHeight: 1.5 }}>
+        Dayo's meal suggestions are general guidance, not medical advice. Please consult a doctor before following any plan for a health condition.
+      </p>
     </>
   );
 }

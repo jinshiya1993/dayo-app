@@ -86,14 +86,11 @@ export default function OnboardingPreview() {
   }
 
   const displayName = profileData.display_name || name || 'You';
-  const isHalal = (profileData.dietary_restrictions || []).some(
-    (d) => d.toLowerCase() === 'halal'
-  );
 
   return (
     <div style={shellStyle}>
       <div style={topBarStyle}>
-        <button onClick={() => navigate(-1)} style={backCircleStyle} aria-label="Back">
+        <button onClick={goEdit} style={backCircleStyle} aria-label="Back">
           <BackIcon />
         </button>
         <span style={{ fontSize: 12, color: '#5A5A5A' }}>Almost there</span>
@@ -116,11 +113,7 @@ export default function OnboardingPreview() {
             avatar={<Avatar letter={initialOf(displayName)} bg="#1A1A1A" />}
             title={<span>{displayName}<YouTag /></span>}
             subtitle={profileData.age ? `Adult · ${profileData.age}` : 'Adult'}
-            rows={[
-              ['Diet', summarize(profileData.dietary_restrictions, 'Any')],
-              ['Health', summarize(profileData.health_conditions, 'None')],
-              ['Avoids', summarize(profileData.exclusions, 'None')],
-            ]}
+            rows={[]}
             onEdit={goEdit}
           />
 
@@ -130,35 +123,21 @@ export default function OnboardingPreview() {
               avatar={<Avatar letter={initialOf(m.name || ROLE_LABEL[m.role])} bg={ROLE_AVATAR_BG[m.role] || '#1A1A1A'} />}
               title={m.name || ROLE_LABEL[m.role]}
               subtitle={memberSubtitle(m)}
-              rows={[
-                m.member_dietary?.length ? ['Diet', summarize(m.member_dietary)] : null,
-                m.member_health_conditions?.length ? ['Health', summarize(m.member_health_conditions)] : null,
-                m.member_exclusions?.length ? ['Avoids', summarize(m.member_exclusions)] : null,
-              ].filter(Boolean)}
+              rows={[]}
               onEdit={goEdit}
             />
           ))}
 
           <SummaryCard
-            avatar={<IconAvatar emoji="🍳" bg="#FFF8F0" />}
-            title="Your kitchen"
-            subtitle="Cuisine & spice"
+            avatar={<IconAvatar emoji="🍽️" bg="#FFF8F0" />}
+            title="Your family's food"
+            subtitle="Set once for everyone"
             rows={[
-              ['Primary', summarize(profileData.cuisine_preferences, 'Any')],
-              profileData.secondary_cuisines?.length ? ['Occasional', summarize(profileData.secondary_cuisines)] : null,
-              ['Spice', spiceText(profileData.spice_level)],
-              isHalal ? ['Halal', 'Yes'] : null,
-            ].filter(Boolean)}
-            onEdit={goEdit}
-          />
-
-          <SummaryCard
-            avatar={<IconAvatar emoji="🛒" bg="#FAF7F5" />}
-            title="Cooking & shopping"
-            subtitle="How food happens"
-            rows={[
-              ['Cooks', COOKING_LABEL[profileData.cooking_responsibility] || 'I cook'],
-              profileData.grocery_day ? ['Shopping day', profileData.grocery_day] : null,
+              ['Cuisine', summarize(profileData.cuisine_preferences, 'Any')],
+              profileData.custom_cuisines ? ['Usually eats', profileData.custom_cuisines] : null,
+              ['Diet', summarize(profileData.dietary_restrictions, 'Any')],
+              ['Avoids', summarize(profileData.exclusions, 'None')],
+              profileData.notes ? ['Keep in mind', profileData.notes] : null,
             ].filter(Boolean)}
             onEdit={goEdit}
           />
