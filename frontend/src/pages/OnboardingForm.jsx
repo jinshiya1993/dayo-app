@@ -4,7 +4,7 @@ import { profile as profileApi, members as membersApi, onboarding as onboardingA
 
 const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Eggetarian', 'Jain', 'Halal', 'Gluten-free', 'Dairy-free', 'High protein'];
 const CUISINE_OPTIONS = ['South Indian', 'North Indian', 'Continental', 'Chinese', 'Italian', 'Mediterranean'];
-const EXCLUSION_OPTIONS = ['Onion', 'Garlic', 'Beef', 'Pork', 'Seafood', 'Mushrooms'];
+const EXCLUSION_OPTIONS = ['Onion', 'Garlic', 'Beef', 'Pork', 'Seafood', 'Mushrooms', 'Peanuts', 'Eggs', 'Dairy / lactose'];
 
 // Fixed step order. Dashboard sections are derived server-side from the
 // children added in the Family step, so there's no per-persona step list.
@@ -415,14 +415,17 @@ function DietStep({ dietary, setDietary, exclusions, setExclusions, notes, setNo
         </p>
       </div>
 
-      <Label>Dietary preferences</Label>
+      <Label>Diet</Label>
       <ChipMultiSelect options={DIETARY_OPTIONS} selected={dietary} onToggle={(v) => setDietary(toggleInArray(dietary, v))} />
 
-      <Label>Foods to avoid</Label>
+      <Label>Foods to avoid &amp; allergies</Label>
       <ChipMultiSelect options={EXCLUSION_OPTIONS} selected={exclusions} onToggle={(v) => setExclusions(toggleInArray(exclusions, v))} />
+      <p style={{ fontSize: 11.5, color: '#9A9A9A', margin: '-6px 2px 14px' }}>
+        We'll never put these in a meal.
+      </p>
 
       <Label>
-        Anything specific to consider?
+        Anything to keep in mind?
         <span style={{ color: '#aaa', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
           optional
         </span>
@@ -430,12 +433,15 @@ function DietStep({ dietary, setDietary, exclusions, setExclusions, notes, setNo
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="e.g. PCOS for mom — low-GI meals; lactose-free for my son; dad is pre-diabetic…"
+        placeholder="e.g. we prefer lighter dinners, kids don't like too spicy, go easy on oil…"
         rows={3}
         style={usualFoodsStyle}
       />
       <p style={{ fontSize: 11.5, color: '#9A9A9A', margin: '8px 2px 0', lineHeight: 1.5 }}>
-        Please consult a doctor before following these meals for any health condition — Dayo's suggestions are general guidance, not medical advice.
+        Little tastes and preferences — the more we know, the better the picks.
+      </p>
+      <p style={{ fontSize: 11, color: '#8A8A8A', fontStyle: 'italic', margin: '10px 2px 0', lineHeight: 1.5 }}>
+        Dayo plans meals to suit your taste. It isn't medical or nutritional advice.
       </p>
     </>
   );
