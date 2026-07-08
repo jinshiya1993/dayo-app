@@ -11,6 +11,9 @@ urlpatterns = [
     # CSRF
     path('csrf/', views.get_csrf_token, name='csrf-token'),
 
+    # Health — reports DB connectivity (diagnose 500s on register/login)
+    path('health/', views.health_check, name='health-check'),
+
     # Auth
     path('auth/register/', views.RegisterView.as_view(), name='register'),
     path('auth/login/', views.LoginView.as_view(), name='login'),

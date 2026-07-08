@@ -25,6 +25,30 @@ def get_csrf_token(request):
     token = get_token(request)
     return Response({'csrfToken': token})
 
+
+@api_view(['GET'])
+@perm_classes([AllowAny])
+def health_check(request):
+    """Reports whether the database is reachable.
+
+    Register/login/Google sign-in all fail with a 500 when the DB is down (a
+    common Render free-Postgres expiry). Hitting this endpoint tells you that
+    directly instead of triggering a 500 through the auth flow.
+    """
+    from django.db import connection
+    try:
+        connection.ensure_connection()
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+            cursor.fetchone()
+    except Exception as e:
+        logger.exception('Health check: database unreachable')
+        return Response(
+            {'status': 'error', 'database': 'unreachable', 'detail': str(e)},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    return Response({'status': 'ok', 'database': 'ok'})
+
 from .models import (
     ChatConversation, ChatMessage, CustomSectionDeletionLog,
     CustomSectionList, CustomSectionTask, DayPlan, EssentialsCheck,
