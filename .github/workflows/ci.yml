@@ -1,0 +1,47 @@
+# CI pipeline for Dayo.
+#
+# What this does: every time you push code or open a pull request to `main`,
+# GitHub spins up a fresh machine, installs the app, and runs the test suite.
+# If any test fails, the run goes RED -- telling you the code is broken BEFORE
+# it reaches production. This is the "CI" (Continuous Integration) half.
+#
+# It needs no secrets: with no DATABASE_URL set, settings.py falls back to
+# SQLite, and the tests never call the real Gemini API.
+
+name: CI
+
+# When to run.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Get a copy of your code onto the runner.
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      # 2. Install Python (match the version Render uses).
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # 3. Install the backend dependencies.
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 4. Safety check: make sure no model change is missing a migration.
+      - name: Check for missing migrations
+        run: python manage.py makemigrations --check --dry-run
+
+      # 5. The main event: run the test suite.
+      - name: Run tests
+        run: python manage.py test
