@@ -196,6 +196,247 @@ def _dedup_key(name):
     return key
 
 
+# --- Retail quantity normalisation -----------------------------------------
+# Supermarkets (Lulu, Carrefour, Noon) sell in standard pack and weight sizes.
+# "1 pc apple" or "2 cups oats" isn't something you can put in a basket, so
+# every quantity we save is converted up to the smallest realistic purchasable
+# unit: weights in 250 g steps, liquids in 500 ml steps, eggs in packs.
+
+# Average weight of one piece, used to convert "3 pcs" into grams.
+_PIECE_WEIGHTS_G = {
+    'apple': 180, 'banana': 120, 'orange': 200, 'tomato': 100,
+    'onion': 150, 'potato': 150, 'cucumber': 200, 'carrot': 80,
+    'lemon': 80, 'lime': 50, 'zucchini': 200, 'eggplant': 250,
+    'aubergine': 250, 'capsicum': 150, 'bell pepper': 150, 'avocado': 200,
+    'sweet potato': 200, 'beetroot': 150, 'mango': 300, 'pear': 180,
+    'peach': 150, 'kiwi': 80, 'pomegranate': 300,
+}
+
+# Rough gram equivalents for recipe-language units the AI sometimes emits
+# despite the prompt telling it not to.
+_CUP_G = 150
+_TBSP_G = 15
+_TSP_G = 5
+
+# Fruits are snacking produce — they scale with how many people are in the
+# house, not with how many recipes mention them. A meal plan that says
+# "1 apple" still means a family of 5 buys apples by the kilo.
+_FRUIT_KEYWORDS = (
+    'apple', 'banana', 'orange', 'mango', 'grape', 'pear', 'peach',
+    'kiwi', 'pomegranate', 'berry', 'berries', 'melon', 'watermelon',
+    'papaya', 'plum', 'apricot', 'guava', 'chikoo', 'sapota', 'date',
+    'fruit',
+)
+
+# Per-person weekly fruit baseline. family of 5 → 1.25 kg → rounds to 1.5 kg,
+# which is how families actually buy fruit.
+_FRUIT_G_PER_PERSON = 250
+_FRUIT_MAX_G = 2000
+
+# Piece-converted vegetables (cucumber "1 pc") get a milder per-person floor —
+# most vegetable quantity is already driven by how many meals use them.
+_VEG_G_PER_PERSON = 100
+
+
+def _is_fruit(name):
+    n = name.lower()
+    return any(f in n for f in _FRUIT_KEYWORDS)
+
+
+def _adult_equivalents(profile):
+    """How many 'adult appetites' this household feeds.
+
+    A toddler doesn't eat an adult's share, so 2 adults + 2 toddlers should
+    shop like ~2.4 people, not 4. Weights: infant (<2y) 0.2, child (2-12y)
+    0.6, everyone 13+ counts as a full adult.
+
+    family_size can exceed the members actually added during onboarding —
+    those unlisted people still eat, so they count as full adults. The result
+    is therefore never lower than what raw family_size implies for the
+    members we know nothing about.
+    """
+    members = list(profile.members.all())
+    aeu = 1.0  # the user themselves
+    for m in members:
+        age = m.age
+        if age < 2:
+            aeu += 0.2
+        elif age < 13:
+            aeu += 0.6
+        else:
+            aeu += 1.0
+    unlisted = (profile.family_size or 1) - 1 - len(members)
+    if unlisted > 0:
+        aeu += unlisted
+    return max(1.0, aeu)
+
+_QTY_PATTERN = re.compile(
+    r'(?P<num>\d+(?:\.\d+)?(?:\s*/\s*\d+)?)\s*'
+    r'(?P<unit>kg|kilograms?|g|grams?|l|litres?|liters?|ml|millilitres?|'
+    r'cups?|tbsp|tablespoons?|tsp|teaspoons?|'
+    r'pcs?|pieces?|bunch(?:es)?|pkts?|packets?|packs?|'
+    r'cans?|tins?|jars?|bottles?|dozens?)?',
+    re.IGNORECASE,
+)
+
+
+def _parse_number(raw):
+    """'1.5' → 1.5, '1/2' → 0.5. Returns None if unparseable."""
+    raw = raw.strip()
+    if '/' in raw:
+        try:
+            num, den = raw.split('/')
+            return float(num) / float(den)
+        except (ValueError, ZeroDivisionError):
+            return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _round_grams_up(grams):
+    """Round up to the nearest 250 g step, shown in kg from 1 kg upward."""
+    steps = max(1, -(-int(grams) // 250))  # ceil division
+    total = steps * 250
+    if total >= 1000:
+        kg = total / 1000
+        # kg in 0.5 steps for display sanity (1 kg, 1.5 kg, 2 kg ...)
+        kg = -(-kg // 0.5) * 0.5
+        return f'{kg:g} kg'
+    return f'{total} g'
+
+
+def _round_ml_up(ml):
+    """Round up to 500 ml steps, shown in litres from 1 L upward."""
+    steps = max(1, -(-int(ml) // 500))
+    total = steps * 500
+    if total >= 1000:
+        litres = total / 1000
+        return f'{litres:g} L'
+    return f'{total} ml'
+
+
+def _egg_pack(count):
+    """Round an egg count up to the nearest real pack size."""
+    for pack in (6, 12, 15, 30):
+        if count <= pack:
+            return f'{pack} pcs'
+    return '30 pcs'
+
+
+def _piece_weight_for(name):
+    lower = name.lower()
+    for item, grams in _PIECE_WEIGHTS_G.items():
+        if item in lower:
+            return grams
+    return None
+
+
+def _apply_family_floor(grams, name, family_size, from_pieces=False):
+    """Scale small quantities up to what a household actually buys.
+
+    Fruit always gets a per-person weekly floor (5 people → 1.25 kg → 1.5 kg).
+    Vegetables only get a floor when the amount came from a piece count
+    ("1 pc cucumber") — weight-based veg amounts are meal-driven and trusted.
+    """
+    if _is_fruit(name):
+        return min(max(grams, round(family_size * _FRUIT_G_PER_PERSON)), _FRUIT_MAX_G)
+    if from_pieces:
+        return max(grams, round(family_size * _VEG_G_PER_PERSON))
+    return grams
+
+
+def _retail_quantity(name, category, quantity, family_size=1):
+    """Convert any quantity string to a supermarket-purchasable one,
+    scaled to household appetite for per-person items like fruit.
+
+    family_size accepts adult-equivalents (a float, see _adult_equivalents)
+    as well as a plain headcount.
+
+    Falls back to the original string when it can't be parsed — better to
+    show what the AI said than to invent a number.
+    """
+    n = name.lower()
+    qty = (quantity or '').strip()
+    family_size = max(1.0, family_size or 1)
+
+    # Fresh herbs are the one thing genuinely sold by the bunch.
+    if any(h in n for h in _HERB_NAMES):
+        return '1 bunch'
+
+    match = _QTY_PATTERN.match(qty)
+    if not match or not match.group('num'):
+        # No usable quantity at all — for fruit we can still derive one
+        # from household appetite; everything else stays as-is.
+        if _is_fruit(n):
+            return _round_grams_up(
+                min(round(family_size * _FRUIT_G_PER_PERSON), _FRUIT_MAX_G)
+            )
+        return qty
+    amount = _parse_number(match.group('num'))
+    if amount is None or amount <= 0:
+        return qty
+    unit = (match.group('unit') or '').lower().rstrip('.')
+
+    # Normalise unit synonyms to a canonical short form.
+    if unit.startswith('kilogram'):
+        unit = 'kg'
+    elif unit.startswith('gram'):
+        unit = 'g'
+    elif unit.startswith(('litre', 'liter')) or unit == 'l':
+        unit = 'l'
+    elif unit.startswith('millilitre'):
+        unit = 'ml'
+    elif unit.startswith(('piece', 'pc')):
+        unit = 'pcs'
+    elif unit.startswith('dozen'):
+        amount *= 12
+        unit = 'pcs'
+    elif unit.startswith('cup'):
+        amount *= _CUP_G
+        unit = 'g'
+    elif unit.startswith(('tbsp', 'tablespoon')):
+        amount *= _TBSP_G
+        unit = 'g'
+    elif unit.startswith(('tsp', 'teaspoon')):
+        amount *= _TSP_G
+        unit = 'g'
+    elif unit.startswith('bunch'):
+        return '1 bunch' if amount <= 1 else f'{int(amount)} bunches'
+    elif unit.startswith(('pkt', 'packet', 'pack', 'can', 'tin', 'jar', 'bottle')):
+        return qty  # already a purchasable pack unit
+
+    if unit == 'pcs':
+        if 'egg' in n:
+            return _egg_pack(int(amount))
+        per_piece = _piece_weight_for(n)
+        if per_piece:
+            grams = _apply_family_floor(amount * per_piece, n, family_size, from_pieces=True)
+            return _round_grams_up(grams)
+        return '1 pc' if int(amount) == 1 else f'{int(amount)} pcs'
+
+    if unit == 'kg':
+        return _round_grams_up(_apply_family_floor(amount * 1000, n, family_size))
+    if unit == 'g':
+        return _round_grams_up(_apply_family_floor(amount, n, family_size))
+    if unit == 'l':
+        return _round_ml_up(amount * 1000)
+    if unit == 'ml':
+        return _round_ml_up(amount)
+
+    # Bare number with no unit — treat weighable produce as pieces,
+    # otherwise leave untouched.
+    if not unit:
+        if 'egg' in n:
+            return _egg_pack(int(amount))
+        per_piece = _piece_weight_for(n)
+        if per_piece:
+            grams = _apply_family_floor(amount * per_piece, n, family_size, from_pieces=True)
+            return _round_grams_up(grams)
+    return qty
+
+
 class GroceryGenerator:
 
     def __init__(self):
@@ -240,6 +481,9 @@ class GroceryGenerator:
         # renames for shopping clarity.
         pantry_set = {p.strip().lower() for p in pantry if p and p.strip()}
         base_list = self._build_base_list(existing_meals, pantry_set)
+        # Household appetite in adult-equivalents — kids eat less than adults,
+        # so quantities scale to this rather than raw family_size.
+        eaters = _adult_equivalents(profile)
         logger.warning(
             f'Grocery base list: {len(base_list)} unique ingredients from '
             f'{len(existing_meals["meals"])} meals'
@@ -248,7 +492,7 @@ class GroceryGenerator:
         parsed_items = None
         try:
             refined = self._refine_with_ai(
-                profile, week_start, end_date, days, existing_meals, pantry, base_list
+                profile, week_start, end_date, days, existing_meals, pantry, base_list, eaters
             )
             # AI must at least cover the deterministic floor — a shorter
             # response means it dropped real ingredients.
@@ -263,7 +507,7 @@ class GroceryGenerator:
             logger.error(f'Grocery AI refinement failed, using deterministic fallback: {e}')
 
         if parsed_items is None:
-            parsed_items = self._base_list_to_items(base_list, profile.family_size or 1)
+            parsed_items = self._base_list_to_items(base_list, eaters)
 
         if not parsed_items:
             logger.error('Grocery generation produced no items — keeping existing list intact.')
@@ -285,7 +529,7 @@ class GroceryGenerator:
             week_start_date=week_start,
         )
 
-        self._save_items(grocery_list, parsed_items)
+        self._save_items(grocery_list, parsed_items, eaters)
 
         existing_names = set(grocery_list.items.values_list('name', flat=True))
 
@@ -468,7 +712,7 @@ class GroceryGenerator:
         ))
         return picked[:MAX_GROCERY_ITEMS]
 
-    def _refine_with_ai(self, profile, start_date, end_date, days, existing_meals, pantry, base_list):
+    def _refine_with_ai(self, profile, start_date, end_date, days, existing_meals, pantry, base_list, eaters=None):
         """Ask Gemini to build the weekly grocery list from the planned meals.
 
         Returns a list of {name, quantity, category} dicts, or None on failure.
@@ -476,7 +720,7 @@ class GroceryGenerator:
         assembler = AIContextAssembler(profile)
         system_prompt = self._build_system_prompt(assembler)
         user_message = self._build_user_message(
-            profile, start_date, end_date, days, existing_meals, pantry, base_list
+            profile, start_date, end_date, days, existing_meals, pantry, base_list, eaters
         )
 
         messages = [
@@ -579,8 +823,9 @@ class GroceryGenerator:
         )
         return header + '\n'.join(sections)
 
-    def _build_user_message(self, profile, start_date, end_date, days, existing_meals, pantry, base_list=None):
+    def _build_user_message(self, profile, start_date, end_date, days, existing_meals, pantry, base_list=None, eaters=None):
         family = profile.family_size or 1
+        eaters = eaters or float(family)
         freq = profile.grocery_frequency or 'weekly'
 
         # Format planned meals — grouped by day with ingredients when known.
@@ -627,7 +872,9 @@ class GroceryGenerator:
         return (
             f"Build a {freq} fresh-shopping list for {days} days "
             f"({start_date.strftime('%B %d')} to {end_date.strftime('%B %d')}).\n"
-            f"Family size: {family} people\n"
+            f"Family size: {family} people (about {eaters:g} adult appetites — "
+            f"children eat smaller portions, so scale quantities to feed "
+            f"{eaters:g} adults)\n"
             f"{meals_text}"
             f"{base_text}"
             f"{pantry_text}\n"
@@ -648,15 +895,23 @@ class GroceryGenerator:
             "- Recipe-language items: write 'lemons' (pieces), not 'lemon juice'; "
             "write 'garlic', not 'garlic paste'; write 'tomatoes', not 'tomato puree'\n"
             "\n"
-            f"## Quantity guidance for {family} people over {days} days\n"
-            "- Use realistic local quantities: kg, g, litres, packets, pieces, bunches — NEVER cups or tablespoons\n"
-            "- Fresh herbs (cilantro, basil, mint, parsley, dill, curry leaves): '1 bunch' or '50 g' — NEVER kg\n"
-            "- Aromatics (ginger, garlic, green chilli): 100–200 g — NEVER kg\n"
-            "- Lemons in pieces (e.g. '6 pcs'), not juice in kg\n"
+            f"## Quantity guidance for {eaters:g} adult appetites over {days} days\n"
+            "Every quantity MUST be something you can actually buy at a supermarket "
+            "(Lulu, Carrefour, Noon) — standard pack and weight sizes only:\n"
+            "- Weights in 250 g steps: 250 g, 500 g, 750 g, 1 kg, 1.5 kg — NEVER cups, tablespoons, or odd grams like 130 g\n"
+            "- Fruits and vegetables by weight, NEVER single pieces: 'Apples 500 g', not 'Apple 1 pc'; "
+            "'Cucumbers 500 g', not 'Cucumber 1 pc'\n"
+            f"- Fruit is bought per person, not per recipe: roughly {_FRUIT_G_PER_PERSON} g "
+            f"per adult appetite per week of each fruit — for this household, that means about "
+            f"{_round_grams_up(min(max(round(eaters * _FRUIT_G_PER_PERSON), _FRUIT_G_PER_PERSON), _FRUIT_MAX_G))} "
+            f"of apples or bananas, never '1 pc'\n"
+            "- Liquids in 500 ml steps: 500 ml, 1 L, 1.5 L, 2 L\n"
+            "- Eggs in real pack sizes: 6, 12, 15, or 30 pcs\n"
+            "- Fresh herbs (cilantro, basil, mint, parsley, dill, curry leaves): '1 bunch' — NEVER kg\n"
+            "- Aromatics (ginger, garlic, green chilli): 100–250 g — NEVER kg\n"
             "- Onions, tomatoes, potatoes scale with meals: typically 1–4 kg total for a family\n"
             "- Meat/fish/chicken: typically 0.5–2 kg total based on how many meals call for it\n"
             "- Milk: scale to ~1 L per 4 days for a family\n"
-            "- Eggs: 6–12 pcs for a family-week\n"
             "\n"
             "## Output format\n"
             f"- Return up to {MAX_GROCERY_ITEMS} items. Be thorough but never include excluded items above.\n"
@@ -703,17 +958,18 @@ class GroceryGenerator:
                 return json.loads(truncated)
             raise
 
-    def _save_items(self, grocery_list, items):
+    def _save_items(self, grocery_list, items, family_size=1):
         for item in items:
             category = item.get('category', 'other')
             valid_categories = [c[0] for c in GroceryItem.Category.choices]
             if category not in valid_categories:
                 category = 'other'
 
+            name = item.get('name', '')
             GroceryItem.objects.create(
                 grocery_list=grocery_list,
-                name=item.get('name', ''),
-                quantity=item.get('quantity', ''),
+                name=name,
+                quantity=_retail_quantity(name, category, item.get('quantity', ''), family_size),
                 category=category,
             )
 
@@ -728,7 +984,9 @@ def _estimate_quantity(name, category, meal_count, family_size):
     deliberately conservative — the user can top up, and an overestimate is
     wasteful, but we avoid 'as needed' for anything we can put a number on."""
     n = name.lower()
-    servings = max(1, meal_count * family_size)
+    # family_size may be adult-equivalents (float) — keep the maths in float
+    # and round only where a count or piece is displayed.
+    servings = max(1.0, meal_count * family_size)
 
     # Per-name caps that override category scaling. Fresh herbs and aromatics
     # are always small quantities no matter how many meals they appear in,
@@ -738,11 +996,11 @@ def _estimate_quantity(name, category, meal_count, family_size):
     if any(a in n for a in _AROMATIC_NAMES):
         return '200 g'
     if any(c in n for c in _CITRUS_NAMES):
-        return f'{max(2, min(8, servings // 2))} pcs'
+        return f'{max(2, min(8, round(servings / 2)))} pcs'
 
     if category == 'dairy':
         if 'milk' in n:
-            return f'{max(1, servings // 4)} L'
+            return f'{max(1, int(servings // 4))} L'
         if 'ghee' in n or 'butter' in n:
             return '250 g'
         return '500 g'
@@ -759,10 +1017,10 @@ def _estimate_quantity(name, category, meal_count, family_size):
             kg = max(0.5, round(servings * 0.15, 1))
             return f'{kg} kg'
         if 'egg' in n:
-            return f'{max(6, servings)} pcs'
+            return f'{max(6, round(servings))} pcs'
         return '500 g'
     if category == 'produce':
-        grams = max(250, servings * 100)
+        grams = max(250, round(servings * 100))
         return f'{grams // 1000} kg' if grams >= 1000 else f'{grams} g'
     if category == 'spices':
         return '1 pkt'

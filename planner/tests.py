@@ -133,3 +133,101 @@ class ProfileAccessTests(APITestCase):
         resp = self.client.get('/api/v1/profile/')
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['username'], 'dave')
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: grocery quantity logic (no DB, no network)
+# ---------------------------------------------------------------------------
+from planner.services.grocery_generator import _adult_equivalents, _retail_quantity
+
+
+class _FakeMember:
+    def __init__(self, age):
+        self.age = age
+
+
+class _FakeMembers:
+    def __init__(self, ages):
+        self._members = [_FakeMember(a) for a in ages]
+
+    def all(self):
+        return self._members
+
+
+class _FakeProfile:
+    def __init__(self, family_size, member_ages=()):
+        self.family_size = family_size
+        self.members = _FakeMembers(member_ages)
+
+
+class AdultEquivalentsTests(TestCase):
+    """2 adults + small kids should shop like fewer than a headcount of 4."""
+
+    def test_infant_child_and_partner(self):
+        # user (1.0) + infant (0.2) + 8yo (0.6) + partner (1.0) = 2.8
+        profile = _FakeProfile(family_size=4, member_ages=[1, 8, 35])
+        self.assertAlmostEqual(_adult_equivalents(profile), 2.8)
+
+    def test_no_members_falls_back_to_family_size(self):
+        # Nobody added in onboarding: unlisted people count as full adults.
+        profile = _FakeProfile(family_size=4)
+        self.assertAlmostEqual(_adult_equivalents(profile), 4.0)
+
+    def test_partial_members_fills_gap_with_adults(self):
+        # family_size 5 but only one child listed: user + child + 3 unlisted adults.
+        profile = _FakeProfile(family_size=5, member_ages=[6])
+        self.assertAlmostEqual(_adult_equivalents(profile), 1.0 + 0.6 + 3.0)
+
+    def test_teenager_counts_as_adult(self):
+        profile = _FakeProfile(family_size=2, member_ages=[15])
+        self.assertAlmostEqual(_adult_equivalents(profile), 2.0)
+
+    def test_never_below_one(self):
+        profile = _FakeProfile(family_size=None)
+        self.assertAlmostEqual(_adult_equivalents(profile), 1.0)
+
+
+class RetailQuantityTests(TestCase):
+    """Quantities must be supermarket-purchasable and scale with appetite."""
+
+    def test_single_piece_fruit_scales_with_eaters(self):
+        self.assertEqual(_retail_quantity('Apple', 'produce', '1 pc', 1), '250 g')
+        self.assertEqual(_retail_quantity('Apple', 'produce', '1 pc', 2.8), '750 g')
+        self.assertEqual(_retail_quantity('Apple', 'produce', '1 pc', 5), '1.5 kg')
+
+    def test_fruit_quantity_is_capped(self):
+        self.assertEqual(_retail_quantity('Apple', 'produce', '1 pc', 10), '2 kg')
+
+    def test_small_fruit_weight_is_raised_to_household_floor(self):
+        self.assertEqual(_retail_quantity('Apples', 'produce', '250 g', 5), '1.5 kg')
+
+    def test_fruit_with_no_quantity_gets_a_derived_one(self):
+        self.assertEqual(_retail_quantity('Mango', 'produce', '', 2), '500 g')
+
+    def test_piece_vegetables_get_milder_floor(self):
+        self.assertEqual(_retail_quantity('Cucumber', 'produce', '1 pc', 5), '500 g')
+
+    def test_weight_based_vegetables_are_trusted(self):
+        # Meal-driven weights aren't inflated by family size.
+        self.assertEqual(_retail_quantity('Carrot', 'produce', '500 g', 5), '500 g')
+
+    def test_recipe_units_convert_to_grams(self):
+        self.assertEqual(_retail_quantity('Rolled oats', 'grains', '2 cups', 1), '500 g')
+
+    def test_eggs_round_to_real_packs(self):
+        self.assertEqual(_retail_quantity('Eggs', 'protein', '8 pcs', 1), '12 pcs')
+
+    def test_herbs_are_always_a_bunch(self):
+        self.assertEqual(_retail_quantity('Cilantro', 'produce', '50 g', 5), '1 bunch')
+
+    def test_liquids_round_to_half_litre_steps(self):
+        self.assertEqual(_retail_quantity('Milk', 'dairy', '1.3 L', 1), '1.5 L')
+
+    def test_whole_fruits_without_piece_weight_stay_pieces(self):
+        self.assertEqual(_retail_quantity('Watermelon', 'produce', '1 pc', 5), '1 pc')
+
+    def test_pack_units_pass_through(self):
+        self.assertEqual(_retail_quantity('Bread', 'grains', '1 pkt', 5), '1 pkt')
+
+    def test_unparseable_quantity_left_alone(self):
+        self.assertEqual(_retail_quantity('Paneer', 'dairy', 'as needed', 3), 'as needed')
