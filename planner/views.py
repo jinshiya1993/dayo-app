@@ -393,6 +393,25 @@ class DayPlanDetailView(generics.RetrieveAPIView):
 # -------------------------------------------------------------------
 # Meal Actions — swap, substitute, favourite
 # -------------------------------------------------------------------
+def _sync_meal_plan_row(day_plan, meal_type, meal):
+    """Keep the MealPlan table in step with plan_data after a meal changes.
+
+    Grocery generation reads MealPlan rows, not plan_data — so a swapped,
+    renamed, or newly-extracted meal must replace the old row, otherwise the
+    old dish's ingredients keep landing on the grocery list forever.
+    """
+    from .models import MealPlan
+    day_plan.meals.filter(meal_type=meal_type).delete()
+    MealPlan.objects.create(
+        day_plan=day_plan,
+        meal_type=meal_type,
+        name=meal.get('name', ''),
+        description=meal.get('description', ''),
+        prep_time_minutes=meal.get('prep_mins', 0) or 0,
+        ingredients=meal.get('ingredients', []) or [],
+    )
+
+
 class ExtractIngredientsView(APIView):
     """POST /plans/<date>/extract-ingredients/<meal_type>/
 
@@ -490,6 +509,7 @@ class ExtractIngredientsView(APIView):
         plan_data[meals_key] = meals_dict
         day_plan.plan_data = plan_data
         day_plan.save(update_fields=['plan_data', 'updated_at'])
+        _sync_meal_plan_row(day_plan, meal_type, meal)
 
         return Response({'meal': meal})
 
@@ -743,6 +763,7 @@ class SwapMealView(APIView):
             plan_data[meals_key][meal_type] = new_meal
             day_plan.plan_data = plan_data
             day_plan.save()
+            _sync_meal_plan_row(day_plan, meal_type, new_meal)
 
             # Log the swap for AI learning
             MealSwapLog.objects.create(
@@ -885,6 +906,7 @@ class RenameMealView(APIView):
         plan_data[meals_key] = meals_dict
         day_plan.plan_data = plan_data
         day_plan.save(update_fields=['plan_data', 'updated_at'])
+        _sync_meal_plan_row(day_plan, meal_type, new_meal)
 
         return Response({'meal': new_meal})
 

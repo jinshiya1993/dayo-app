@@ -714,6 +714,11 @@ class PlanGenerator:
         if not isinstance(meals_data, dict):
             return
 
+        # Regeneration must REPLACE the day's meals, not append. Without
+        # this, every regeneration stacked 4 more rows and the grocery list
+        # kept shopping for meals that were no longer in the plan.
+        day_plan.meals.all().delete()
+
         for meal_type in ['breakfast', 'lunch', 'dinner']:
             meal = meals_data.get(meal_type)
             if meal and isinstance(meal, dict):

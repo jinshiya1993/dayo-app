@@ -263,6 +263,31 @@ class AIContextAssembler:
             f"- Primary cuisines (everyday): {cuisine}\n"
         )
 
+        # Strict cuisine adherence — only enforced when the user actually
+        # picked cuisines. The allowed set is exactly what they chose:
+        # primary + custom + secondary. Without this, Gemini drifts into
+        # "healthy-adjacent" dishes from other regions (a sambar lunch for a
+        # North Indian household, a hummus snack nobody asked for) and those
+        # ingredients leak into the grocery list.
+        if self.profile.cuisine_preferences or custom:
+            allowed = cuisine + (f', {secondary}' if secondary else '')
+            result += (
+                "\n## CUISINE RULE — STRICT\n"
+                f"Every dish — breakfast, lunch, dinner AND snacks — must belong "
+                f"to these cuisines only: {allowed}.\n"
+                "Do NOT include dishes from any other regional cuisine, even "
+                "healthy or popular ones: no sambar/dosa/idli unless a South "
+                "Indian cuisine is listed, no hummus/falafel/shakshuka unless a "
+                "Middle Eastern cuisine is listed, no pasta/stir-fry unless "
+                "Italian/Asian cuisines are listed.\n"
+            )
+            if secondary:
+                result += (
+                    f"Occasional cuisines ({secondary}) may appear at most 1-2 "
+                    "times per week; everything else must come from the primary "
+                    "cuisines.\n"
+                )
+
         # Hard food exclusions — surface BEFORE the rest of preferences so
         # the model treats them as gate, not a footnote.
         if self.profile.exclusions:
