@@ -5,6 +5,7 @@ from .models import (
     ChatMessage,
     DayPlan,
     FavouriteMeal,
+    GenerationLog,
     HouseholdMember,
     GroceryItem,
     GroceryList,
@@ -136,3 +137,16 @@ class KidsActivityPlanAdmin(admin.ModelAdmin):
 class KidsActivityDayAdmin(admin.ModelAdmin):
     list_display = ['child', 'day_of_week', 'story_title', 'unlocked', 'is_read', 'is_downloaded']
     list_filter = ['unlocked', 'is_read', 'is_downloaded', 'day_of_week']
+
+
+@admin.register(GenerationLog)
+class GenerationLogAdmin(admin.ModelAdmin):
+    list_display = ['created_at', 'service', 'ok', 'fallback_used',
+                    'latency_ms', 'input_tokens', 'output_tokens',
+                    'prompt_version', 'profile']
+    list_filter = ['service', 'ok', 'fallback_used', 'prompt_version']
+    date_hierarchy = 'created_at'
+    readonly_fields = [f.name for f in GenerationLog._meta.fields]
+
+    def has_add_permission(self, request):
+        return False  # rows come from logged_invoke only

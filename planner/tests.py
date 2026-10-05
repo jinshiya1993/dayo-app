@@ -231,3 +231,277 @@ class RetailQuantityTests(TestCase):
 
     def test_unparseable_quantity_left_alone(self):
         self.assertEqual(_retail_quantity('Paneer', 'dairy', 'as needed', 3), 'as needed')
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: eval harness (planner/evals/) — no LLM calls, fixture data only
+# ---------------------------------------------------------------------------
+from planner.evals.context import build_context
+from planner.evals.report import aggregate, prompt_version
+from planner.evals.rules import (
+    grocery_rule_no_leftover_items,
+    grocery_rule_no_pantry_staples,
+    grocery_rule_retail_quantities,
+    rule_cuisine_adherence,
+)
+
+
+class _FakeEvalProfile:
+    def __init__(self, exclusions=None, cuisines=None, custom='', secondary=None,
+                 user_type='homemaker', family_size=2):
+        self.exclusions = exclusions or []
+        self.cuisine_preferences = cuisines or []
+        self.custom_cuisines = custom
+        self.secondary_cuisines = secondary or []
+        self.user_type = user_type
+        self.family_size = family_size
+
+
+def _plan_with(name, slot='lunch'):
+    return {'meals': {slot: {'name': name}}}
+
+
+class BuildContextTests(TestCase):
+
+    def test_exclusions_lowercased(self):
+        ctx = build_context(_FakeEvalProfile(exclusions=['Nuts', ' Shellfish ']))
+        self.assertEqual(ctx['banned'], ['nuts', 'shellfish'])
+
+    def test_cuisines_are_a_union_of_all_three_fields(self):
+        ctx = build_context(_FakeEvalProfile(
+            cuisines=['North Indian'], custom='Parsi, Goan', secondary=['Thai']))
+        self.assertEqual(ctx['allowed_cuisines'],
+                         ['goan', 'north indian', 'parsi', 'thai'])
+
+    def test_empty_profile_yields_empty_sets(self):
+        ctx = build_context(_FakeEvalProfile(family_size=None))
+        self.assertEqual(ctx['allowed_cuisines'], [])
+        self.assertEqual(ctx['banned'], [])
+        self.assertEqual(ctx['family_size'], 1)
+
+
+class CuisineAdherenceRuleTests(TestCase):
+
+    def test_sambar_flags_for_north_indian_only_home(self):
+        ctx = {'allowed_cuisines': ['north indian']}
+        violations = rule_cuisine_adherence(
+            _plan_with('Sambar with Brown Rice'), ctx)
+        self.assertEqual(len(violations), 1)
+        self.assertIn('Sambar', violations[0])
+
+    def test_sambar_passes_for_south_indian_home(self):
+        ctx = {'allowed_cuisines': ['south indian', 'kerala']}
+        self.assertEqual(
+            rule_cuisine_adherence(_plan_with('Sambar with Brown Rice'), ctx), [])
+
+    def test_hummus_snack_flags_without_middle_eastern(self):
+        ctx = {'allowed_cuisines': ['north indian']}
+        violations = rule_cuisine_adherence(
+            _plan_with('Carrot Sticks with Hummus', slot='snack'), ctx)
+        self.assertEqual(len(violations), 1)
+
+    def test_no_chosen_cuisines_means_no_restriction(self):
+        self.assertEqual(
+            rule_cuisine_adherence(_plan_with('Sambar'), {'allowed_cuisines': []}), [])
+
+    def test_broad_indian_label_covers_regional_dishes(self):
+        ctx = {'allowed_cuisines': ['indian']}
+        self.assertEqual(rule_cuisine_adherence(_plan_with('Masala Dosa'), ctx), [])
+
+    def test_mom_meals_path_is_checked_too(self):
+        ctx = {'allowed_cuisines': ['kerala']}
+        plan = {'mom_meals': {'lunch': {'name': 'Falafel Wrap'}}}
+        self.assertEqual(len(rule_cuisine_adherence(plan, ctx)), 1)
+
+
+class GroceryRulesTests(TestCase):
+
+    def test_recipe_units_flagged(self):
+        items = [{'name': 'Rolled oats', 'quantity': '2 cups', 'category': 'grains'}]
+        self.assertEqual(len(grocery_rule_retail_quantities(items, {})), 1)
+
+    def test_single_piece_weighable_produce_flagged(self):
+        items = [{'name': 'Apple', 'quantity': '1 pc', 'category': 'produce'}]
+        violations = grocery_rule_retail_quantities(items, {})
+        self.assertEqual(len(violations), 1)
+        self.assertIn('weight', violations[0])
+
+    def test_retail_quantities_pass(self):
+        items = [
+            {'name': 'Apples', 'quantity': '500 g', 'category': 'produce'},
+            {'name': 'Chicken', 'quantity': '1.5 kg', 'category': 'protein'},
+            {'name': 'Milk', 'quantity': '1 L', 'category': 'dairy'},
+            {'name': 'Eggs', 'quantity': '12 pcs', 'category': 'protein'},
+            {'name': 'Cilantro', 'quantity': '1 bunch', 'category': 'produce'},
+            {'name': 'Bread', 'quantity': '1 pkt', 'category': 'grains'},
+        ]
+        self.assertEqual(grocery_rule_retail_quantities(items, {}), [])
+
+    def test_odd_gram_amount_flagged(self):
+        items = [{'name': 'Celery', 'quantity': '130 g', 'category': 'produce'}]
+        self.assertEqual(len(grocery_rule_retail_quantities(items, {})), 1)
+
+    def test_missing_quantity_flagged(self):
+        items = [{'name': 'Paneer', 'quantity': '', 'category': 'dairy'}]
+        self.assertEqual(len(grocery_rule_retail_quantities(items, {})), 1)
+
+    def test_pantry_staple_flagged(self):
+        items = [{'name': 'Basmati rice', 'quantity': '1 kg', 'category': 'grains'}]
+        self.assertEqual(len(grocery_rule_no_pantry_staples(items, {})), 1)
+
+    def test_fresh_items_not_staples(self):
+        items = [{'name': 'Chicken breast', 'quantity': '1 kg', 'category': 'protein'}]
+        self.assertEqual(grocery_rule_no_pantry_staples(items, {}), [])
+
+    def test_leftover_item_flagged(self):
+        items = [{'name': 'Leftover dal', 'quantity': '', 'category': 'other'}]
+        self.assertEqual(len(grocery_rule_no_leftover_items(items, {})), 1)
+
+
+class EvalReportTests(TestCase):
+
+    def test_aggregate_counts_passes_and_collects_samples(self):
+        results = [
+            {'profile': 'p1', 'repeat': 0, 'rule': 'r', 'violations': []},
+            {'profile': 'p1', 'repeat': 1, 'rule': 'r', 'violations': ['bad', 'worse']},
+            {'profile': 'p2', 'repeat': 0, 'rule': 'r', 'violations': []},
+        ]
+        card = aggregate(results)
+        self.assertEqual(card['r']['passed'], 2)
+        self.assertEqual(card['r']['total'], 3)
+        self.assertEqual(len(card['r']['samples']), 2)
+
+    def test_sample_cap_is_three(self):
+        results = [{'profile': 'p', 'repeat': 0, 'rule': 'r',
+                    'violations': ['a', 'b', 'c', 'd', 'e']}]
+        self.assertEqual(len(aggregate(results)['r']['samples']), 3)
+
+    def test_prompt_version_is_stable_and_short(self):
+        v1, v2 = prompt_version(), prompt_version()
+        self.assertEqual(v1, v2)
+        self.assertEqual(len(v1), 12)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: LLM-as-judge cuisine check (fake LLM, no network)
+# ---------------------------------------------------------------------------
+import json as _json
+
+from planner.evals.judge import (
+    build_judge_message, judge_cuisine_adherence, parse_judge_response,
+)
+
+
+class _FakeJudgeLLM:
+    """Stands in for Gemini: returns a canned response, records the prompt."""
+
+    def __init__(self, verdicts):
+        self._content = _json.dumps(verdicts)
+        self.messages = None
+
+    def invoke(self, messages):
+        self.messages = messages
+
+        class _Resp:
+            content = self._content
+        return _Resp()
+
+
+class CuisineJudgeTests(TestCase):
+
+    def test_message_lists_cuisines_and_dishes(self):
+        msg = build_judge_message(['Menemen', 'Sambar'], ['turkish'])
+        self.assertIn('turkish', msg)
+        self.assertIn('- Menemen', msg)
+        self.assertIn('- Sambar', msg)
+
+    def test_parse_accepts_fenced_json(self):
+        raw = '```json\n[{"name": "Menemen", "allowed": true}]\n```'
+        self.assertEqual(parse_judge_response(raw, 1)[0]['name'], 'Menemen')
+
+    def test_parse_rejects_wrong_count(self):
+        with self.assertRaises(ValueError):
+            parse_judge_response('[{"name": "x", "allowed": true}]', 2)
+
+    def test_disallowed_dish_becomes_violation(self):
+        plans = [{'meals': {
+            'breakfast': {'name': 'Menemen'},
+            'lunch': {'name': 'Sambar with Rice'},
+        }}]
+        llm = _FakeJudgeLLM([
+            {'name': 'Menemen', 'cuisine': 'Turkish', 'allowed': True, 'reason': 'classic Turkish'},
+            {'name': 'Sambar with Rice', 'cuisine': 'South Indian', 'allowed': False, 'reason': 'South Indian staple'},
+        ])
+        violations = judge_cuisine_adherence(plans, {'allowed_cuisines': ['turkish']}, llm=llm)
+        self.assertEqual(len(violations), 1)
+        self.assertIn('Sambar', violations[0])
+
+    def test_all_allowed_passes(self):
+        plans = [{'meals': {'dinner': {'name': 'Imam Bayildi'}}}]
+        llm = _FakeJudgeLLM([{'name': 'Imam Bayildi', 'cuisine': 'Turkish', 'allowed': True}])
+        self.assertEqual(
+            judge_cuisine_adherence(plans, {'allowed_cuisines': ['turkish']}, llm=llm), [])
+
+    def test_no_cuisines_skips_judge_entirely(self):
+        plans = [{'meals': {'dinner': {'name': 'Anything'}}}]
+        self.assertEqual(judge_cuisine_adherence(plans, {'allowed_cuisines': []}, llm=None), [])
+
+    def test_judge_failure_is_a_violation_not_a_pass(self):
+        class _Broken:
+            def invoke(self, messages):
+                raise RuntimeError('boom')
+        plans = [{'meals': {'dinner': {'name': 'Menemen'}}}]
+        violations = judge_cuisine_adherence(plans, {'allowed_cuisines': ['turkish']}, llm=_Broken())
+        self.assertEqual(len(violations), 1)
+        self.assertIn('judge call failed', violations[0])
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: LLM observability (logged_invoke → GenerationLog)
+# ---------------------------------------------------------------------------
+from planner.models import GenerationLog
+from planner.services.llm_logging import logged_invoke
+
+
+class _FakeLoggedLLM:
+    model = 'gemini-test'
+
+    def __init__(self, fail=False):
+        self._fail = fail
+
+    def invoke(self, messages):
+        if self._fail:
+            raise RuntimeError('quota exceeded')
+
+        class _Resp:
+            content = '{"ok": true}'
+            usage_metadata = {'input_tokens': 120, 'output_tokens': 45}
+        return _Resp()
+
+
+class LoggedInvokeTests(TestCase):
+
+    def test_successful_call_is_logged_with_tokens(self):
+        response, log = logged_invoke(_FakeLoggedLLM(), ['msg'], 'grocery')
+        self.assertEqual(response.content, '{"ok": true}')
+        self.assertIsNotNone(log)
+        self.assertTrue(log.ok)
+        self.assertEqual(log.service, 'grocery')
+        self.assertEqual(log.input_tokens, 120)
+        self.assertEqual(log.output_tokens, 45)
+        self.assertEqual(log.model_name, 'gemini-test')
+        self.assertEqual(len(log.prompt_version), 12)
+
+    def test_failed_call_is_logged_then_reraised(self):
+        with self.assertRaises(RuntimeError):
+            logged_invoke(_FakeLoggedLLM(fail=True), ['msg'], 'weekly_meals')
+        log = GenerationLog.objects.get()
+        self.assertFalse(log.ok)
+        self.assertIn('quota exceeded', log.error)
+        self.assertEqual(log.service, 'weekly_meals')
+
+    def test_fallback_flag_roundtrip(self):
+        _, log = logged_invoke(_FakeLoggedLLM(), ['msg'], 'grocery')
+        log.fallback_used = True
+        log.save(update_fields=['fallback_used'])
+        self.assertTrue(GenerationLog.objects.get(pk=log.pk).fallback_used)

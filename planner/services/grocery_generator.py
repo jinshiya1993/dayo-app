@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..models import DayPlan, GroceryItem, GroceryList, MealPlan
 from .ai_context import AIContextAssembler
+from .llm_logging import logged_invoke
 
 logger = logging.getLogger(__name__)
 
@@ -452,6 +453,9 @@ class GroceryGenerator:
             thinking_budget=0,
             transport='rest',
         )
+        # Set by _refine_with_ai; lets generate_grocery_list mark the log
+        # row when the AI output is rejected for the deterministic fallback.
+        self.last_llm_log = None
 
     def generate_grocery_list(self, profile, week_start=None):
         """
@@ -508,6 +512,11 @@ class GroceryGenerator:
 
         if parsed_items is None:
             parsed_items = self._base_list_to_items(base_list, eaters)
+            # Record that the AI's list was rejected — the fallback rate is
+            # the single most useful health number for this service.
+            if self.last_llm_log:
+                self.last_llm_log.fallback_used = True
+                self.last_llm_log.save(update_fields=['fallback_used'])
 
         if not parsed_items:
             logger.error('Grocery generation produced no items — keeping existing list intact.')
@@ -735,7 +744,8 @@ class GroceryGenerator:
         )
 
         for attempt in range(2):
-            response = self.llm.invoke(messages)
+            response, self.last_llm_log = logged_invoke(
+                self.llm, messages, 'grocery', profile)
             raw_content = response.content.strip()
             try:
                 candidate = self._parse_response(raw_content)

@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..models import CustomSectionList, CustomSectionTask, DayPlan, HouseworkList, HouseworkTask, HouseworkTemplate, MealPlan, PlanBlock, Reminder
 from .ai_context import AIContextAssembler
+from .llm_logging import logged_invoke
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +142,7 @@ class PlanGenerator:
 
         logger.info(f'Weekly meals: requesting {num_days} days from {start_date}')
         try:
-            response = self.weekly_llm.invoke(messages)
+            response, _ = logged_invoke(self.weekly_llm, messages, 'weekly_meals', profile)
             raw_content = response.content
             weekly_data = self._parse_response(raw_content)
 
@@ -428,7 +429,7 @@ class PlanGenerator:
                 HumanMessage(content=user_message),
             ]
 
-            response = self.llm.invoke(messages)
+            response, _ = logged_invoke(self.llm, messages, 'day_plan', profile)
             raw_content = response.content
             day_plan.raw_ai_response = raw_content
 

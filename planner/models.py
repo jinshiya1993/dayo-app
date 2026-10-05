@@ -977,3 +977,52 @@ class TodayTimelineCheck(models.Model):
 
     def __str__(self):
         return f'{self.date} {self.item_key} {"✓" if self.completed else "·"}'
+
+
+# -------------------------------------------------------------------
+# GenerationLog — observability for every LLM call
+# -------------------------------------------------------------------
+class GenerationLog(models.Model):
+    """One row per Gemini call, written by services/llm_logging.logged_invoke.
+
+    This is the production counterpart of the eval harness: evals measure
+    quality offline against golden profiles; these rows record what actually
+    happened for real users — how often calls fail, how slow they are, what
+    they cost, and how often the grocery AI output gets rejected in favour
+    of the deterministic fallback."""
+
+    class Service(models.TextChoices):
+        WEEKLY_MEALS = 'weekly_meals', 'Weekly meal generation'
+        DAY_PLAN = 'day_plan', 'Day plan generation'
+        GROCERY = 'grocery', 'Grocery refinement'
+        SWAP = 'swap', 'Meal swap'
+        RECIPE = 'recipe', 'Recipe extraction'
+        CHAT = 'chat', 'Chat'
+        OTHER = 'other', 'Other'
+
+    profile = models.ForeignKey(
+        UserProfile, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='generation_logs',
+    )
+    service = models.CharField(max_length=20, choices=Service.choices)
+    model_name = models.CharField(max_length=60, blank=True)
+    # Same hash the eval reports carry — links production behaviour to the
+    # prompt version that produced it.
+    prompt_version = models.CharField(max_length=12, blank=True)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    latency_ms = models.PositiveIntegerField(default=0)
+    ok = models.BooleanField(default=True)
+    error = models.CharField(max_length=300, blank=True)
+    # Grocery only: the AI response was rejected and the deterministic
+    # base list was used instead.
+    fallback_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['service', '-created_at'])]
+
+    def __str__(self):
+        flag = 'ok' if self.ok else 'FAILED'
+        return f'{self.service} {flag} {self.latency_ms}ms {self.created_at:%m-%d %H:%M}'

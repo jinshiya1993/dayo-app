@@ -27,3 +27,4 @@ media/
 
 # Mockups
 mockup-*.html
+planner/evals/reports/*.json
