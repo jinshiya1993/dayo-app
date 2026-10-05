@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { profile as profileApi, members as membersApi, auth } from '../services/api';
+import {
+  profile as profileApi, members as membersApi, auth,
+  learnedPreferences as learnedApi,
+} from '../services/api';
 import { clearCache, getCached } from '../services/cache';
 
 const ROLE_OPTIONS = [
@@ -33,10 +36,19 @@ export default function ProfilePage() {
   const [editingMemberId, setEditingMemberId] = useState(null);
   const [editingModules, setEditingModules] = useState(false);
   const [newModule, setNewModule] = useState('');
+  const [learned, setLearned] = useState(null);
 
   useEffect(() => {
     loadProfile();
+    learnedApi.get().then((d) => { if (!d.error) setLearned(d); }).catch(() => {});
   }, []);
+
+  async function dismissLearnedCuisine(cuisine) {
+    const res = await learnedApi.dismissCuisine(cuisine);
+    if (!res.error) {
+      setLearned((prev) => (prev ? { ...prev, learned_cuisines: res.learned_cuisines } : prev));
+    }
+  }
 
   async function loadProfile() {
     if (getCached('profile') === undefined) setLoading(true);
@@ -205,6 +217,67 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
+
+          {/* What Dayo has learned — everything the generator uses, shown
+              plainly. Honest empty state rather than confident-sounding
+              patterns from two or three actions. */}
+          {learned && (
+            <div className="profile-section">
+              <div className="profile-section-title" style={{ marginBottom: 8 }}>
+                What Dayo has learned
+              </div>
+              {/* Learned cuisines apply on their own threshold (three
+                  explicit requests), so they can exist before the broader
+                  dish signals kick in — show them either way. */}
+              {!learned.applied && (learned.learned_cuisines || []).length === 0 ? (
+                <p style={{ fontSize: 13, color: '#888', margin: 0, lineHeight: 1.5 }}>
+                  Not much yet — keep swapping meals and asking for dishes you
+                  like, and this fills in.
+                  {learned.actions_needed > 0 && ` About ${learned.actions_needed} more to go.`}
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {(learned.learned_cuisines || []).length > 0 && (
+                    <div>
+                      <div style={learnedLabelStyle}>Cuisines you keep asking for</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {learned.learned_cuisines.map((c) => (
+                          <span key={c} style={learnedChipStyle}>
+                            {c.charAt(0).toUpperCase() + c.slice(1)}
+                            <button
+                              onClick={() => dismissLearnedCuisine(c)}
+                              style={learnedChipRemoveStyle}
+                              aria-label={`Remove ${c}`}
+                            >×</button>
+                          </span>
+                        ))}
+                      </div>
+                      <p style={{ fontSize: 11.5, color: '#9A9A9A', margin: '6px 0 0' }}>
+                        Added 2–3 times a week alongside your own cuisines. Remove
+                        any you don't want.
+                      </p>
+                    </div>
+                  )}
+                  {(learned.avoid_dishes || []).length > 0 && (
+                    <div>
+                      <div style={learnedLabelStyle}>Dishes you keep swapping away</div>
+                      <div style={{ fontSize: 13, color: '#1a1a1a' }}>
+                        {learned.avoid_dishes.join(' · ')}
+                      </div>
+                    </div>
+                  )}
+                  {(learned.favour_dishes || []).length > 0 && (
+                    <div>
+                      <div style={learnedLabelStyle}>Dishes you ask for or keep</div>
+                      <div style={{ fontSize: 13, color: '#1a1a1a' }}>
+                        {learned.favour_dishes.join(' · ')}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Planning Modules */}
           <div className="profile-section">
@@ -385,3 +458,34 @@ export default function ProfilePage() {
     </div>
   );
 }
+
+const learnedLabelStyle = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#999',
+  textTransform: 'uppercase',
+  letterSpacing: 0.4,
+  marginBottom: 4,
+};
+
+const learnedChipStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  background: '#FFF8F0',
+  borderRadius: 10,
+  padding: '5px 10px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#C2855A',
+};
+
+const learnedChipRemoveStyle = {
+  background: 'none',
+  border: 'none',
+  color: '#C2855A',
+  cursor: 'pointer',
+  fontSize: 14,
+  lineHeight: 1,
+  padding: 0,
+};

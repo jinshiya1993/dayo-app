@@ -231,6 +231,51 @@ class ProfileView(generics.RetrieveUpdateAPIView):
         return profile
 
 
+class LearnedPreferencesView(APIView):
+    """GET  /preferences/learned/   — what Dayo has learned, in full.
+    POST /preferences/learned/   — body {cuisine} to remove a learned one.
+
+    Everything the generator uses is returned here verbatim: nothing is
+    inferred about a user that we are unwilling to show her.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .services.preferences import (
+            build_behaviour_profile, build_generation_context,
+        )
+        profile = request.user.profile
+        behaviour = build_behaviour_profile(profile)
+        context = build_generation_context(profile, behaviour)
+        return Response({
+            'behaviour': behaviour,
+            'applied': context['behaviour_applied'],
+            'actions_needed': context['actions_needed'],
+            'avoid_dishes': context['avoid_dishes'],
+            'favour_dishes': context['favour_dishes'],
+            'learned_cuisines': profile.learned_secondary_cuisines or [],
+            'dismissed_cuisines': profile.dismissed_learned_cuisines or [],
+        })
+
+    def post(self, request):
+        cuisine = (request.data.get('cuisine') or '').strip().lower()
+        if not cuisine:
+            return Response({'error': 'cuisine is required'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        profile = request.user.profile
+        dismissed = [c for c in (profile.dismissed_learned_cuisines or [])]
+        if cuisine not in dismissed:
+            dismissed.append(cuisine)
+        learned = [c for c in (profile.learned_secondary_cuisines or []) if c != cuisine]
+        # Dismissing is the user speaking, so this one DOES go through save()
+        # and bumps updated_at — settings outrank behaviour.
+        profile.dismissed_learned_cuisines = dismissed
+        profile.learned_secondary_cuisines = learned
+        profile.save(update_fields=['dismissed_learned_cuisines',
+                                    'learned_secondary_cuisines', 'updated_at'])
+        return Response({'learned_cuisines': learned, 'dismissed_cuisines': dismissed})
+
+
 class SectionsView(APIView):
     """Returns all available dashboard sections with metadata."""
     permission_classes = [IsAuthenticated]
@@ -409,6 +454,7 @@ def _sync_meal_plan_row(day_plan, meal_type, meal):
         description=meal.get('description', ''),
         prep_time_minutes=meal.get('prep_mins', 0) or 0,
         ingredients=meal.get('ingredients', []) or [],
+        cuisine=(meal.get('cuisine') or '')[:60],
     )
 
 
@@ -739,15 +785,28 @@ class SwapMealView(APIView):
 
             fav_text = f"\nThe user's favourite meals (try to vary from these but use similar style): {', '.join(favourites)}" if favourites else ""
 
+            # A swap means "not this dish tonight", not "send me shopping".
+            # Constrain the replacement to what she has already bought.
+            from .services.grocery_generator import available_ingredients
+            have = available_ingredients(profile)
+            stock_text = ''
+            if have:
+                stock_text = (
+                    f"\n\nCOOK FROM WHAT SHE ALREADY HAS. The replacement MUST be "
+                    f"makeable from these ingredients, plus basic pantry staples "
+                    f"(rice, flour, dals, oil, spices): {', '.join(have[:40])}.\n"
+                    f"Do NOT suggest a dish that needs another shopping trip."
+                )
+
             messages = [
                 SystemMessage(content=context['system_prompt']),
                 HumanMessage(content=(
                     f"The user wants to SWAP their {meal_type}. The current {meal_type} is '{current_name}' — suggest something DIFFERENT.\n"
                     f"Must be balanced: protein + carbs + healthy fats + fiber.\n"
                     f"Must respect the user's cuisine preferences and health conditions.\n"
-                    f"Must work for {profile.family_size} people.{fav_text}\n\n"
+                    f"Must work for {profile.family_size} people.{fav_text}{stock_text}\n\n"
                     f"Return ONLY a JSON object:\n"
-                    f'{{"name": "Meal name", "prep_mins": 20, "description": "Brief recipe"}}\n'
+                    f'{{"name": "Meal name", "prep_mins": 20, "cuisine": "the dish\'s cuisine", "description": "Brief recipe"}}\n'
                 )),
             ]
 
@@ -771,6 +830,11 @@ class SwapMealView(APIView):
                 meal_type=meal_type,
                 rejected_meal=current_name,
                 chosen_meal=new_meal.get('name', ''),
+                # Tap-to-swap: the model picked the replacement from her own
+                # cuisine, so this says nothing about wanting a new cuisine.
+                was_user_request=False,
+                rejected_cuisine=(current_meal.get('cuisine') or '')[:60],
+                chosen_cuisine=(new_meal.get('cuisine') or '')[:60],
                 day_of_week=target_date.strftime('%A'),
             )
 
@@ -838,8 +902,13 @@ class RenameMealView(APIView):
             SystemMessage(content=(
                 'You are estimating quick metadata for a renamed meal. Return ONLY a JSON object:\n'
                 '{"prep_mins": 20, "kcal": 420, "description": "Short one-sentence summary", '
-                '"tags": ["High protein", "Quick"]}\n'
+                '"tags": ["High protein", "Quick"], "cuisine": "the dish\'s actual cuisine", '
+                '"ingredients": ["ingredient 1", "ingredient 2"]}\n'
                 'No markdown fences, no extra keys.\n'
+                'cuisine: where the dish genuinely comes from — recorded to learn '
+                'her tastes, so be accurate even if it is not her usual cuisine.\n'
+                'ingredients: everything the dish needs; anything she does not '
+                'already have is added to her grocery list.\n'
                 'prep_mins: integer minutes for one cook session.\n'
                 'kcal: integer per single adult serving. Realistic ranges: '
                 'breakfast 250-450, lunch 400-650, dinner 400-700, snack 80-220.\n'
@@ -902,13 +971,45 @@ class RenameMealView(APIView):
         if tags:
             new_meal['tags'] = tags[:3]
 
+        cuisine = (data.get('cuisine') or '').strip()
+        if cuisine:
+            new_meal['cuisine'] = cuisine
+        ingredients = [str(i).strip() for i in (data.get('ingredients') or []) if str(i).strip()]
+        if ingredients:
+            new_meal['ingredients'] = ingredients
+
         meals_dict[meal_type] = new_meal
         plan_data[meals_key] = meals_dict
         day_plan.plan_data = plan_data
         day_plan.save(update_fields=['plan_data', 'updated_at'])
         _sync_meal_plan_row(day_plan, meal_type, new_meal)
 
-        return Response({'meal': new_meal})
+        # Typing a dish name IS her stating what she wants — the strongest
+        # preference signal there is, and until now it was recorded nowhere.
+        old_name = (meal.get('name') or '').strip()
+        try:
+            MealSwapLog.objects.create(
+                profile=profile,
+                meal_type=meal_type,
+                rejected_meal=old_name,
+                chosen_meal=new_name,
+                user_request=new_name,
+                was_user_request=True,
+                rejected_cuisine=(meal.get('cuisine') or '')[:60],
+                chosen_cuisine=cuisine[:60],
+            )
+        except Exception:
+            logger.exception('rename-meal preference log failed')
+
+        # Her choice, so the list follows: only what she lacks is added.
+        added_to_grocery = []
+        try:
+            from .services.grocery_generator import add_missing_to_grocery
+            added_to_grocery = add_missing_to_grocery(profile, ingredients)
+        except Exception:
+            logger.exception('rename-meal grocery sync failed')
+
+        return Response({'meal': new_meal, 'added_to_grocery': added_to_grocery})
 
 
 class SubstituteMealView(APIView):
@@ -1170,7 +1271,13 @@ class ChangeMealView(APIView):
                 f"- Suitable for {profile.family_size} people\n"
                 f"- Use their preferred cuisine style where possible, adapted to the request\n\n"
                 f"Return ONLY a compact JSON object, keep description under 10 words:\n"
-                f'{{"name": "Meal name", "prep_mins": 20, "description": "Under 10 words"}}\n'
+                f'{{"name": "Meal name", "prep_mins": 20, "cuisine": "the dish\'s actual cuisine", '
+                f'"ingredients": ["ingredient 1", "ingredient 2"], "description": "Under 10 words"}}\n'
+                f"The cuisine must name where the dish genuinely comes from — it is "
+                f"recorded to learn her tastes, so be accurate even if it differs "
+                f"from her usual cuisines.\n"
+                f"List every ingredient the dish needs — anything she doesn't "
+                f"already have will be added to her grocery list.\n"
             )),
         ]
 
@@ -1203,6 +1310,11 @@ class ChangeMealView(APIView):
                 rejected_meal=current_meal_name,
                 chosen_meal=new_meal.get('name', ''),
                 user_request=user_request,
+                # She typed what she wanted — the one signal that carries
+                # cuisine-level intent, and the basis for learning a
+                # secondary cuisine she never listed.
+                was_user_request=True,
+                chosen_cuisine=(new_meal.get('cuisine') or '')[:60],
                 day_of_week=target_date.strftime('%A'),
             )
         except Exception as e:
@@ -1210,7 +1322,22 @@ class ChangeMealView(APIView):
             logging.getLogger(__name__).error(f'ChangeMeal save error: {e}')
             return Response({'error': f'Failed to save meal: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        return Response({'meal_type': meal_type, 'meal': new_meal, 'plan_data': plan_data})
+        # She chose this dish, so the list bends to her: whatever it needs
+        # that she hasn't already got is added. Never fails the request —
+        # the meal is saved either way.
+        added_to_grocery = []
+        try:
+            from .services.grocery_generator import add_missing_to_grocery
+            added_to_grocery = add_missing_to_grocery(
+                profile, new_meal.get('ingredients') or [])
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('ChangeMeal grocery sync failed')
+
+        return Response({
+            'meal_type': meal_type, 'meal': new_meal, 'plan_data': plan_data,
+            'added_to_grocery': added_to_grocery,
+        })
 
 
 # -------------------------------------------------------------------

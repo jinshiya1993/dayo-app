@@ -23,6 +23,7 @@ urlpatterns = [
     # Profile
     path('profile/', views.ProfileView.as_view(), name='profile'),
     path('profile/layout/', views.LayoutView.as_view(), name='profile-layout'),
+    path('preferences/learned/', views.LearnedPreferencesView.as_view(), name='preferences-learned'),
 
     # Dashboard sections registry
     path('sections/', views.SectionsView.as_view(), name='sections'),

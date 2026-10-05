@@ -132,7 +132,21 @@ class UserProfile(models.Model):
     secondary_cuisines = models.JSONField(
         default=list,
         blank=True,
-        help_text='Cuisines the household enjoys occasionally (1-2 per week).',
+        help_text='Cuisines the household enjoys occasionally (2-3 per week).',
+    )
+    # Learned from behaviour, NOT stated by the user — kept separate from
+    # secondary_cuisines so the UI can label them as learned and let her
+    # remove one. A removal is remembered in dismissed_learned_cuisines so
+    # the same cuisine is never re-learned behind her back.
+    learned_secondary_cuisines = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Cuisines inferred from repeated explicit requests (max 2).',
+    )
+    dismissed_learned_cuisines = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Learned cuisines the user removed — never auto-applied again.',
     )
     spice_level = models.PositiveSmallIntegerField(
         default=3,
@@ -443,6 +457,9 @@ class MealPlan(models.Model):
     description = models.TextField(blank=True)
     prep_time_minutes = models.PositiveIntegerField(default=0)
     ingredients = models.JSONField(default=list, blank=True)
+    # The cuisine the generator declared for this dish. Stored rather than
+    # inferred later, so preference aggregation stays pure counting.
+    cuisine = models.CharField(max_length=60, blank=True)
 
     class Meta:
         ordering = ['meal_type']
@@ -836,6 +853,16 @@ class MealSwapLog(models.Model):
         help_text='What the user typed for change requests, empty for swaps',
     )
     day_of_week = models.CharField(max_length=10, blank=True)  # Monday, Tuesday, etc.
+    # Cuisines of each side, captured at write time from the meal data we
+    # already have. A swap's replacement comes from the user's own cuisine,
+    # so only was_user_request=True rows carry cuisine-level intent.
+    rejected_cuisine = models.CharField(max_length=60, blank=True)
+    chosen_cuisine = models.CharField(max_length=60, blank=True)
+    was_user_request = models.BooleanField(
+        default=False,
+        help_text='True when the user typed the dish they wanted, False for '
+                  'a tap-to-swap where the model chose the replacement.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

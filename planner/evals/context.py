@@ -27,6 +27,9 @@ def build_context(profile):
         # custom_cuisines is free text, possibly comma-separated
         cuisines.extend(c.strip() for c in custom.split(','))
     cuisines.extend(profile.secondary_cuisines or [])
+    # Cuisines learned from repeated explicit requests are legitimately
+    # allowed — without this the judge would flag dishes she asked for.
+    cuisines.extend(getattr(profile, 'learned_secondary_cuisines', None) or [])
     allowed = sorted({c.strip().lower() for c in cuisines if c and c.strip()})
 
     return {

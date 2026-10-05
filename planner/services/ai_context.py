@@ -261,7 +261,13 @@ class AIContextAssembler:
         exclusions = ', '.join(self.profile.exclusions) if self.profile.exclusions else 'None'
         modules = ', '.join(self.profile.planning_modules) if self.profile.planning_modules else 'General planning'
 
-        secondary = ', '.join(self.profile.secondary_cuisines) if self.profile.secondary_cuisines else ''
+        # Stated occasional cuisines plus any learned from repeated explicit
+        # requests. Learned ones must be in the allowed set or the strict
+        # cuisine rule below would reject the very dishes she asked for.
+        secondary_list = list(self.profile.secondary_cuisines or []) + [
+            c.title() for c in (self.profile.learned_secondary_cuisines or [])
+        ]
+        secondary = ', '.join(secondary_list)
         spice_labels = {1: 'Mild', 2: 'Light', 3: 'Medium', 4: 'Hot', 5: 'Fire'}
         spice_level = self.profile.spice_level or 3
         spice_label = spice_labels.get(spice_level, 'Medium')
@@ -294,8 +300,8 @@ class AIContextAssembler:
             )
             if secondary:
                 result += (
-                    f"Occasional cuisines ({secondary}) may appear at most 1-2 "
-                    "times per week; everything else must come from the primary "
+                    f"Occasional cuisines ({secondary}) may appear 2-3 times "
+                    "per week; everything else must come from the primary "
                     "cuisines.\n"
                 )
 
@@ -525,36 +531,20 @@ class AIContextAssembler:
         return '\n'.join(lines) + '\n'
 
     def _swap_patterns_section(self):
-        """Include swap/change patterns so AI learns what the user rejects and prefers."""
-        from django.db.models import Count
-        logs = self.profile.meal_swap_logs.all()[:30]
-        if not logs:
-            return None
+        """Behaviour-learned preferences, computed deterministically.
 
-        # Find frequently rejected meals
-        rejected = self.profile.meal_swap_logs.values('rejected_meal').annotate(
-            count=Count('id')
-        ).filter(count__gte=2).order_by('-count')[:5]
-
-        # Find user change requests (what they specifically ask for)
-        change_requests = self.profile.meal_swap_logs.exclude(
-            user_request=''
-        ).values('meal_type', 'user_request', 'day_of_week')[:10]
-
-        lines = ["## Meal Preferences (learned from user behavior)"]
-
-        if rejected:
-            lines.append("The user frequently rejects these meals — AVOID suggesting them:")
-            for r in rejected:
-                lines.append(f"- {r['rejected_meal']} (rejected {r['count']} times)")
-
-        if change_requests:
-            lines.append("\nThe user has specifically requested these — factor them in:")
-            for c in change_requests:
-                day = f" on {c['day_of_week']}s" if c['day_of_week'] else ""
-                lines.append(f"- Wants '{c['user_request']}' for {c['meal_type']}{day}")
-
-        return '\n'.join(lines) + '\n'
+        Replaces an older inline version that counted rejections with no
+        date filter at all and had no policy for weighing behaviour against
+        what the user actually asked for at onboarding. All of that now
+        lives in services/preferences.py: this method only renders it.
+        """
+        from .preferences import (
+            build_behaviour_profile, build_generation_context,
+            render_context_section,
+        )
+        behaviour = build_behaviour_profile(self.profile)
+        context = build_generation_context(self.profile, behaviour)
+        return render_context_section(context)
 
     def _housework_history_section(self):
         """Include housework completion/deletion patterns so AI learns user preferences."""

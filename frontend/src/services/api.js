@@ -94,6 +94,15 @@ export const profile = {
   },
 };
 
+// What Dayo has learned from behaviour, plus removing a learned cuisine.
+// Never cached — it changes as she uses the app.
+export const learnedPreferences = {
+  get: () => request('/preferences/learned/'),
+  dismissCuisine: (cuisine) => request('/preferences/learned/', {
+    method: 'POST', body: JSON.stringify({ cuisine }),
+  }),
+};
+
 // Sections registry
 export const sections = {
   list: () => request('/sections/'),

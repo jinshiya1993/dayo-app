@@ -205,6 +205,7 @@ function DayCard({ day, swapping, onSwapDay, onOpenMeal, onSaved }) {
   const [drafts, setDrafts] = useState({ breakfast: '', lunch: '', dinner: '' });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [groceryNote, setGroceryNote] = useState('');
 
   const dateLabel = new Date(day.date).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric',
@@ -252,6 +253,11 @@ function DayCard({ day, swapping, onSwapDay, onOpenMeal, onSaved }) {
       return;
     }
 
+    // Her dish may need things she hasn't bought. Say what was added
+    // rather than changing her grocery list silently.
+    const added = results.flatMap((r) => r?.added_to_grocery || []);
+    setGroceryNote(added.length ? `Added ${added.join(', ')} to your grocery list` : '');
+
     setEditing(false);
     if (typeof onSaved === 'function') await onSaved();
   }
@@ -293,6 +299,17 @@ function DayCard({ day, swapping, onSwapDay, onOpenMeal, onSaved }) {
         </div>
       ) : (
         <div style={mealsStackStyle}>
+          {groceryNote && (
+            <div style={groceryNoteStyle}>
+              🛒 {groceryNote}
+              <button
+                type="button"
+                onClick={() => setGroceryNote('')}
+                style={groceryNoteCloseStyle}
+                aria-label="Dismiss"
+              >×</button>
+            </div>
+          )}
           {['breakfast', 'lunch', 'dinner'].map((mt) => {
             const m = day.meals?.[mt];
             if (!m || !m.name) return null;
@@ -608,6 +625,16 @@ const editInputStyle = {
 };
 const saveErrorStyle = {
   fontSize: 11.5, color: '#7F1D1D', padding: '4px 4px 0',
+};
+
+const groceryNoteStyle = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  fontSize: 11.5, color: '#8A6A4B', background: '#FFF8F0',
+  borderRadius: 10, padding: '7px 10px', marginBottom: 6, lineHeight: 1.4,
+};
+const groceryNoteCloseStyle = {
+  marginLeft: 'auto', background: 'none', border: 'none',
+  color: '#8A6A4B', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0,
 };
 
 const dotsRowStyle = {

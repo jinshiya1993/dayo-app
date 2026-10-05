@@ -118,6 +118,14 @@ class PlanGenerator:
         if start_date is None:
             start_date = date.today()
 
+        # Promote any cuisine she has repeatedly asked for before the prompt
+        # is assembled, so the strict cuisine rule allows it this run.
+        from .preferences import sync_learned_cuisines
+        try:
+            sync_learned_cuisines(profile)
+        except Exception:
+            logger.exception('Learned-cuisine sync failed; generating without it')
+
         assembler = AIContextAssembler(profile)
         user_type = profile.user_type
 
@@ -315,6 +323,7 @@ class PlanGenerator:
             "- COOKING STEPS: every meal MUST include a `steps` array of 4-8 short imperative sentences.\n"
             "  Each step is one action: 'Marinate the chicken with yogurt and spices', 'Heat oil in a pan over medium heat', etc. No numbering — just sentences.\n"
             "- KCAL: every meal MUST include a `kcal` integer — approximate calories per serving (a single adult portion). Realistic ranges: breakfast 250-450, lunch 400-650, dinner 400-700, snack 80-220.\n"
+            "- CUISINE: every meal MUST include a `cuisine` string naming the cuisine the dish actually belongs to (e.g. \"North Indian\", \"Kerala\", \"Thai\"). Use the user's own cuisine labels where they fit. This is recorded, so be accurate rather than flattering.\n"
             "- SNACK: emit exactly ONE snack as a single dish object. The `name` must be ONE concrete item (e.g. 'Roasted chana with peanuts', 'Apple slices with peanut butter') — NEVER a list, NEVER multiple items joined by '•' or commas.\n"
             "- TAGS: every meal MUST include a `tags` array of 2-3 SHORT (1-3 word) dietary highlights.\n"
             "  Pick from: condition tags (PCOS-friendly, Diabetic-friendly, Heart-healthy, Anti-inflammatory, Low GI), nutrition tags (High protein, Iron-rich, Fiber-rich, Low carb, Healthy fats), context tags (Family-friendly, Quick, One-pan, Make-ahead, Comfort), recovery tags (Postpartum, Lactation support).\n"
@@ -340,7 +349,7 @@ class PlanGenerator:
             '      "meal_health_banner": "Warm caring line about today\'s meals",\n'
             '      "meals": {\n'
             '        "breakfast": {\n'
-            '          "name": "Dish name", "prep_mins": 15, "kcal": 320, "description": "Brief recipe",\n'
+            '          "name": "Dish name", "prep_mins": 15, "kcal": 320, "cuisine": "North Indian", "description": "Brief recipe",\n'
             '          "ingredients": ["ingredient 1", "ingredient 2"],\n'
             '          "steps": ["Step 1", "Step 2", "Step 3", "Step 4"],\n'
             '          "tags": ["PCOS-friendly", "High protein"],\n'
@@ -572,6 +581,7 @@ class PlanGenerator:
             "- COOKING STEPS: every meal MUST include a `steps` array of 4-8 short imperative sentences.\n"
             "  Each step is one action: 'Marinate the chicken with yogurt and spices', 'Heat oil in a pan over medium heat', etc. No numbering — just sentences.\n"
             "- KCAL: every meal MUST include a `kcal` integer — approximate calories per serving (a single adult portion). Realistic ranges: breakfast 250-450, lunch 400-650, dinner 400-700, snack 80-220.\n"
+            "- CUISINE: every meal MUST include a `cuisine` string naming the cuisine the dish actually belongs to (e.g. \"North Indian\", \"Kerala\", \"Thai\"). Use the user's own cuisine labels where they fit. This is recorded, so be accurate rather than flattering.\n"
             "- SNACK: emit exactly ONE snack as a single dish object. The `name` must be ONE concrete item (e.g. 'Roasted chana with peanuts', 'Apple slices with peanut butter') — NEVER a list, NEVER multiple items joined by '•' or commas.\n"
             "- TAGS: every meal MUST include a `tags` array of 2-3 SHORT (1-3 word) dietary highlights.\n"
             "  Pick from: condition tags (PCOS-friendly, Diabetic-friendly, Heart-healthy, Anti-inflammatory, Low GI), nutrition tags (High protein, Iron-rich, Fiber-rich, Low carb, Healthy fats), context tags (Family-friendly, Quick, One-pan, Make-ahead, Comfort), recovery tags (Postpartum, Lactation support).\n"
@@ -730,6 +740,7 @@ class PlanGenerator:
                     description=meal.get('description', ''),
                     prep_time_minutes=meal.get('prep_mins', 0),
                     ingredients=meal.get('ingredients', []),
+                    cuisine=(meal.get('cuisine') or '')[:60],
                 )
 
         # Save snack — new shape is a single meal object. Legacy plans may

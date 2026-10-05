@@ -1035,3 +1035,80 @@ def _estimate_quantity(name, category, meal_count, family_size):
     if category == 'spices':
         return '1 pkt'
     return '1 pkt'
+
+
+# ---------------------------------------------------------------------------
+# Meal <-> grocery coupling
+#
+# Two opposite rules, because a swap and a typed request mean different
+# things. Tapping Swap means "not this dish tonight" -- she should not be
+# sent back to the shop, so the replacement has to come from what is already
+# on the list. Typing a dish she wants is her own choice, so the list bends
+# to her instead: anything missing gets added, anything already there is
+# left alone.
+# ---------------------------------------------------------------------------
+
+def _active_list(profile):
+    return GroceryList.objects.filter(profile=profile, completed=False).order_by('-generated_at').first()
+
+
+def available_ingredients(profile):
+    """What she can cook from today: the open grocery list plus the pantry.
+
+    Returns display names (for the prompt). Staples are assumed present and
+    are not listed -- they are never on the weekly list in the first place.
+    """
+    names = []
+    grocery_list = _active_list(profile)
+    if grocery_list:
+        names.extend(grocery_list.items.values_list('name', flat=True))
+    names.extend(profile.pantry_items.values_list('name', flat=True))
+    seen, out = set(), []
+    for name in names:
+        key = _dedup_key((name or '').strip())
+        if key and key not in seen:
+            seen.add(key)
+            out.append(name.strip())
+    return out
+
+
+def add_missing_to_grocery(profile, ingredients, eaters=None):
+    """Add only what is NOT already on the list or in the pantry.
+
+    Skips staples and vague entries for the same reason generation does --
+    'salt' and 'rice' are not worth a line on a shopping list. Items are
+    marked is_user_added so a regeneration cannot wipe something she asked
+    for. Returns the names actually added, so the caller can tell her.
+    """
+    grocery_list = _active_list(profile)
+    if not grocery_list or not ingredients:
+        return []
+
+    existing = {_dedup_key(n) for n in grocery_list.items.values_list('name', flat=True)}
+    existing |= {_dedup_key(n) for n in profile.pantry_items.values_list('name', flat=True)}
+    if eaters is None:
+        eaters = _adult_equivalents(profile)
+
+    added = []
+    for raw in ingredients:
+        cleaned = _normalise_ingredient(raw)
+        if not cleaned:
+            continue
+        key = _dedup_key(cleaned)
+        if not key or key in existing or key in _VAGUE_INGREDIENT_NAMES:
+            continue
+        category = _classify_category(cleaned)
+        if _is_pantry_staple(cleaned, category):
+            continue
+        display = cleaned[:1].upper() + cleaned[1:]
+        GroceryItem.objects.create(
+            grocery_list=grocery_list,
+            name=display,
+            quantity=_retail_quantity(
+                display, category, _estimate_quantity(display, category, 1, eaters), eaters),
+            category=category if category in dict(GroceryItem.Category.choices) else 'other',
+            is_user_added=True,
+        )
+        existing.add(key)
+        added.append(display)
+    return added
