@@ -90,9 +90,41 @@ def regenerate_kids_activities(level: str, child_name: str = "") -> str:
     return ""
 
 
+# -------------------------------------------------------------------
+# READ tools. Unlike everything above, these change nothing -- they let
+# the model look at the user's current state instead of relying on it all
+# being pre-pasted into the system prompt. Because they cannot cause harm,
+# the chat loop executes them immediately and feeds the result back, which
+# is what lets the model chain several lookups before proposing an action.
+# -------------------------------------------------------------------
+
 @tool
-def web_search(query: str) -> str:
-    """Search the web for information."""
+def get_todays_plan() -> str:
+    """Look up today's plan: meals, housework tasks and their done state.
+    Use this before suggesting any change to today, so the suggestion
+    refers to what is actually planned."""
+    return ""
+
+
+@tool
+def get_schedule(child_name: str = "") -> str:
+    """Look up today's schedule events with times and locations.
+    Pass child_name (case-insensitive) to see only that child's events,
+    e.g. when a child is unwell and their activities may need cancelling."""
+    return ""
+
+
+@tool
+def get_grocery_list() -> str:
+    """Look up the current grocery list, showing which items are already
+    ticked off. Use before adding or removing items."""
+    return ""
+
+
+@tool
+def get_pantry_items() -> str:
+    """Look up what the household always keeps at home. Use to check whether
+    a dish can be made from what is already in, before suggesting it."""
     return ""
 
 
@@ -109,7 +141,22 @@ def get_all_tools():
         add_metime_activity,
         add_errand,
         regenerate_kids_activities,
+        # Read tools -- safe to auto-execute inside the chat loop.
+        get_todays_plan,
+        get_schedule,
+        get_grocery_list,
+        get_pantry_items,
     ]
+
+
+# Names the chat loop may run without asking the user first. Anything not
+# in here writes to the database and must go through pending_action.
+READ_ONLY_TOOLS = {
+    'get_todays_plan',
+    'get_schedule',
+    'get_grocery_list',
+    'get_pantry_items',
+}
 
 
 # ===================================================================
@@ -152,8 +199,6 @@ def describe_action(tool_name, tool_args):
         return 'Set %s\'s activities to %s level and regenerate today\'s pack' % (
             who, a.get('level', '?')
         )
-    if tool_name == 'web_search':
-        return 'Search the web for "%s"' % a.get('query', '?')
     return 'Run %s' % tool_name
 
 
@@ -466,8 +511,100 @@ def _execute_regenerate_kids_activities(profile, args):
     return {"success": True, "message": f"Set {who}'s activities to {level} level and regenerated today's pack."}
 
 
-def _execute_web_search(profile, args):
-    return {"success": False, "message": "Web search is coming soon."}
+# -------------------------------------------------------------------
+# Read executors. These return the data as compact readable text because
+# the result is handed straight back to the model as a ToolMessage -- it
+# reads this, not a serialised object. Keep it short: every read costs
+# input tokens on the next loop step.
+# -------------------------------------------------------------------
+
+def _execute_get_todays_plan(profile, args):
+    today = date.today()
+    plan = DayPlan.objects.filter(
+        profile=profile, date=today, status='ready'
+    ).first()
+
+    lines = []
+    if plan and plan.plan_data:
+        data = plan.plan_data
+        meals = data.get('meals') or data.get('mom_meals') or {}
+        for slot in ('breakfast', 'lunch', 'snack', 'dinner'):
+            meal = meals.get(slot)
+            if isinstance(meal, dict) and meal.get('name'):
+                lines.append('%s: %s' % (slot.title(), meal['name']))
+    if not lines:
+        lines.append('No meals planned for today yet.')
+
+    hw = HouseworkList.objects.filter(profile=profile, date=today).first()
+    if hw:
+        tasks = hw.tasks.all()
+        if tasks:
+            done = [t.name for t in tasks if t.is_completed]
+            todo = [t.name for t in tasks if not t.is_completed]
+            lines.append('Housework still to do: %s' % (', '.join(todo) or 'nothing'))
+            if done:
+                lines.append('Housework already done: %s' % ', '.join(done))
+    else:
+        lines.append('No housework list for today.')
+
+    return {"success": True, "message": '\n'.join(lines)}
+
+
+def _execute_get_schedule(profile, args):
+    from .ai_context import AIContextAssembler
+
+    today = date.today()
+    # Reuse the recurrence logic rather than reimplement it -- daily/weekday/
+    # custom repeats are fiddly and one copy is enough.
+    events = AIContextAssembler(profile)._get_events_for_date(today)
+
+    wanted = (args.get('child_name') or '').strip().lower()
+    if wanted:
+        events = [e for e in events
+                  if e.child and e.child.name.lower() == wanted]
+
+    if not events:
+        who = ' for %s' % args['child_name'] if wanted else ''
+        return {"success": True, "message": 'No events scheduled today%s.' % who}
+
+    lines = []
+    for e in events:
+        line = '%s %s' % (e.start_time.strftime('%H:%M'), e.title)
+        if e.location:
+            line += ' at %s' % e.location
+        if e.child:
+            line += ' [%s]' % e.child.name
+        if e.travel_time_minutes:
+            line += ' (leave %d min early)' % e.travel_time_minutes
+        lines.append(line)
+    return {"success": True, "message": '\n'.join(lines)}
+
+
+def _execute_get_grocery_list(profile, args):
+    glist = GroceryList.objects.filter(
+        profile=profile, completed=False
+    ).order_by('-generated_at').first()
+    if not glist:
+        return {"success": True, "message": 'No active grocery list.'}
+
+    items = glist.items.all()
+    if not items:
+        return {"success": True, "message": 'The grocery list is empty.'}
+
+    todo = [i.name for i in items if not i.checked]
+    got = [i.name for i in items if i.checked]
+    lines = ['Still to buy: %s' % (', '.join(todo) or 'nothing')]
+    if got:
+        lines.append('Already bought: %s' % ', '.join(got))
+    return {"success": True, "message": '\n'.join(lines)}
+
+
+def _execute_get_pantry_items(profile, args):
+    names = list(profile.pantry_items.values_list('name', flat=True))
+    if not names:
+        return {"success": True, "message": 'No pantry items recorded.'}
+    return {"success": True,
+            "message": 'Always at home: %s' % ', '.join(names)}
 
 
 # ===================================================================
@@ -485,5 +622,8 @@ TOOL_EXECUTORS = {
     'add_metime_activity': _execute_add_metime_activity,
     'add_errand': _execute_add_errand,
     'regenerate_kids_activities': _execute_regenerate_kids_activities,
-    'web_search': _execute_web_search,
+    'get_todays_plan': _execute_get_todays_plan,
+    'get_schedule': _execute_get_schedule,
+    'get_grocery_list': _execute_get_grocery_list,
+    'get_pantry_items': _execute_get_pantry_items,
 }

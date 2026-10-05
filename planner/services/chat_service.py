@@ -2,13 +2,22 @@ import logging
 
 from django.conf import settings
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage, HumanMessage, SystemMessage, ToolMessage,
+)
 
 from ..models import ChatConversation, ChatMessage
 from .ai_context import AIContextAssembler
-from .chat_tools import describe_action, get_all_tools
+from .chat_tools import (
+    READ_ONLY_TOOLS, describe_action, execute_tool, get_all_tools,
+)
 
 logger = logging.getLogger(__name__)
+
+# How many times the model may look something up before it has to answer.
+# Every step resends the whole system prompt, so this is a cost ceiling as
+# much as a safety one. Four covers 'check schedule, check plan, propose'.
+MAX_TOOL_STEPS = 4
 
 
 class ChatService:
@@ -55,32 +64,68 @@ class ChatService:
                 messages.append(AIMessage(content=msg.content))
 
         try:
-            response = self.llm.invoke(messages)
+            # Agent loop. Read-only tools run immediately and their result is
+            # fed back, so the model can chain lookups ("which of Arya's events
+            # are today?" then "what is planned for dinner?") before deciding.
+            # Anything that WRITES breaks the loop and goes to the user for
+            # confirmation exactly as before -- the model never mutates data
+            # on its own.
+            assistant_msg = None
 
-            # Check if Gemini wants to call a tool
-            if response.tool_calls:
-                tc = response.tool_calls[0]
-                pending = {
-                    "tool_name": tc["name"],
-                    "tool_args": tc["args"],
-                    "description": describe_action(tc["name"], tc["args"]),
-                }
-                # Use LLM's text if provided, otherwise generate description
-                content = response.content if response.content else pending["description"]
+            for step in range(MAX_TOOL_STEPS):
+                response = self.llm.invoke(messages)
 
-                assistant_msg = ChatMessage.objects.create(
-                    conversation=conversation,
-                    role=ChatMessage.Role.ASSISTANT,
-                    content=content,
-                    pending_action=pending,
-                    action_status=ChatMessage.ActionStatus.PENDING,
-                )
+                if not response.tool_calls:
+                    assistant_msg = ChatMessage.objects.create(
+                        conversation=conversation,
+                        role=ChatMessage.Role.ASSISTANT,
+                        content=response.content,
+                    )
+                    break
+
+                writes = [
+                    tc for tc in response.tool_calls
+                    if tc["name"] not in READ_ONLY_TOOLS
+                ]
+                if writes:
+                    tc = writes[0]
+                    pending = {
+                        "tool_name": tc["name"],
+                        "tool_args": tc["args"],
+                        "description": describe_action(tc["name"], tc["args"]),
+                    }
+                    content = response.content or pending["description"]
+                    assistant_msg = ChatMessage.objects.create(
+                        conversation=conversation,
+                        role=ChatMessage.Role.ASSISTANT,
+                        content=content,
+                        pending_action=pending,
+                        action_status=ChatMessage.ActionStatus.PENDING,
+                    )
+                    break
+
+                # All reads. Run them and hand the results back so the next
+                # invoke() can use what this one learned.
+                messages.append(response)
+                for tc in response.tool_calls:
+                    result = execute_tool(
+                        tc["name"], tc["args"], conversation.profile
+                    )
+                    messages.append(ToolMessage(
+                        content=str(result.get("message", "")),
+                        tool_call_id=tc["id"],
+                    ))
             else:
-                # Normal text response
+                # Ran out of steps without settling on an answer. Usually means
+                # the tool descriptions are unclear rather than that the budget
+                # is too small -- worth reading the logs if this recurs.
+                logger.warning(
+                    'Chat hit MAX_TOOL_STEPS for conversation %s', conversation.id
+                )
                 assistant_msg = ChatMessage.objects.create(
                     conversation=conversation,
                     role=ChatMessage.Role.ASSISTANT,
-                    content=response.content,
+                    content="Sorry, I got a bit tangled up there. Could you ask me that again?",
                 )
 
             # Update conversation title from first exchange
