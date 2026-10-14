@@ -24,9 +24,14 @@ function App() {
     // Don't re-check auth while on onboarding screens —
     // prevents redirect race condition when onboarding_complete becomes true
     if (location.pathname.startsWith('/onboarding')) return;
-    // Leaving onboarding before state has refreshed — show loader instead of
-    // flashing the onboarding fallback while checkAuth is in flight.
-    if (!onboarded) setAuthed(null);
+    // Show the loader instead of a stale screen while checkAuth is in flight:
+    //  - leaving onboarding before state has refreshed would flash the
+    //    onboarding fallback;
+    //  - someone who just signed in is still authed === false, so the login
+    //    page would render again between Google closing and the dashboard
+    //    appearing. Excluding /auth keeps a logged-out visitor landing on the
+    //    login page from seeing a pointless spinner first.
+    if (!onboarded || (authed === false && location.pathname !== '/auth')) setAuthed(null);
     checkAuth();
   }, [location.pathname]);
 
