@@ -44,6 +44,9 @@ export default function AuthPage() {
         text: 'continue_with',
         shape: 'pill',
         width: 300,
+        // Without this, Google renders the button in the viewer's own
+        // locale — Arabic for UAE users — inside an English-only app.
+        locale: 'en',
       });
     }
 
