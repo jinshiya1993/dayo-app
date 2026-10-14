@@ -47,6 +47,9 @@ export default function AuthPage() {
         // Without this, Google renders the button in the viewer's own
         // locale — Arabic for UAE users — inside an English-only app.
         locale: 'en',
+        // Default is 'left', which pins the logo to the edge and centres the
+        // label, leaving a gap between them. 'center' keeps them together.
+        logo_alignment: 'center',
       });
     }
 
