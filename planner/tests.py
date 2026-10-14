@@ -1034,28 +1034,31 @@ class VoiceChatEndpointTests(APITestCase):
         self.assertEqual(resp.status_code, 400)
 
     def test_spoken_message_reaches_the_chat_agent(self):
+        # Patch ChatService where the VIEW looks it up — constructing the real
+        # one builds a Gemini client, which needs an API key CI does not have.
         from planner.models import ChatMessage
         reply = ChatMessage(conversation=self.conv, role='assistant',
                             content='You could make matar paneer.')
+        service = SimpleNamespace(send_message=lambda conv, text: reply)
         with patch('planner.services.voice.transcribe',
-                   return_value='what can I make with paneer and peas') as tr, \
-             patch('planner.services.chat_service.ChatService.send_message',
-                   return_value=reply) as send:
+                   return_value='what can I make with paneer and peas'), \
+             patch('planner.views.ChatService', return_value=service):
             resp = self.client.post(
                 '/api/v1/chat/%d/voice/' % self.conv.pk, {'audio': self._audio()})
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.data['transcript'], 'what can I make with paneer and peas')
         self.assertEqual(resp.data['reply']['content'], 'You could make matar paneer.')
-        send.assert_called_once()
 
     def test_silence_does_not_call_the_agent(self):
+        called = []
+        service = SimpleNamespace(send_message=lambda *a: called.append(a) or None)
         with patch('planner.services.voice.transcribe', return_value=''), \
-             patch('planner.services.chat_service.ChatService.send_message') as send:
+             patch('planner.views.ChatService', return_value=service):
             resp = self.client.post(
                 '/api/v1/chat/%d/voice/' % self.conv.pk, {'audio': self._audio()})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['transcript'], '')
-        send.assert_not_called()
+        self.assertEqual(called, [])
 
     def test_bad_audio_is_a_clean_400(self):
         with patch('planner.services.voice.transcribe',
