@@ -48,6 +48,9 @@ export default function ChatPage() {
   const [confirming, setConfirming] = useState(null);
   const [profileData, setProfileData] = useState(null);
   const [childList, setChildList] = useState([]);
+  const [recording, setRecording] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
+  const mediaRecorderRef = useRef(null);
   const messagesEnd = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -125,6 +128,59 @@ export default function ChatPage() {
   }
 
   async function sendMessage(text) { await doSendMessage(activeConvo, text); }
+
+  async function toggleRecording() {
+    if (recording) { stopRecording(); return; }
+    if (!activeConvo) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setVoiceError('Voice needs a newer browser — you can type instead.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setRecording(false);
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        await handleVoice(blob);
+      };
+      mediaRecorderRef.current = rec;
+      setVoiceError('');
+      rec.start();
+      setRecording(true);
+    } catch (err) {
+      setVoiceError('I need microphone access to listen. You can type instead.');
+    }
+  }
+
+  function stopRecording() {
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state !== 'inactive') rec.stop();
+  }
+
+  async function handleVoice(blob) {
+    setSending(true);
+    const result = await chat.sendVoice(activeConvo.id, blob);
+    if (result.error) {
+      setVoiceError(result.error === 'unauthorized' ? 'Please sign in again.' : result.error);
+      setSending(false);
+      return;
+    }
+    if (!result.transcript) {
+      setVoiceError(result.message || "I didn't catch anything — tap and try again.");
+      setSending(false);
+      return;
+    }
+    setMessages((prev) => [...prev, { id: Date.now(), role: 'user', content: result.transcript }]);
+    if (result.reply) setMessages((prev) => [...prev, result.reply]);
+    if (activeConvo.title === 'New Chat') {
+      setActiveConvo({ ...activeConvo, title: result.transcript.slice(0, 50) });
+    }
+    setSending(false);
+  }
 
   async function confirmAction(messageId) {
     setConfirming(messageId);
@@ -265,18 +321,40 @@ export default function ChatPage() {
 
         {/* Input */}
         <div className="chat-input-area">
+          {(voiceError || recording) && (
+            <div style={{ fontSize: 12, color: recording ? '#C2855A' : '#9A7B5A',
+                          padding: '0 4px 6px', textAlign: 'center' }}>
+              {recording ? 'Listening… tap the mic again when you\'re done' : voiceError}
+            </div>
+          )}
           <div className="chat-input-wrapper">
             <input
               className="chat-input-field"
-              placeholder="Message Dayo..."
+              placeholder={recording ? 'Listening…' : 'Message Dayo...'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={sending}
+              disabled={sending || recording}
             />
+            <button
+              type="button"
+              onClick={toggleRecording}
+              disabled={sending && !recording}
+              aria-label={recording ? 'Stop recording' : 'Record a voice message'}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
+                border: 'none', cursor: 'pointer', marginRight: 6,
+                background: recording ? '#C2855A' : 'transparent',
+                color: recording ? '#fff' : '#8a8178',
+              }}>
+              {recording
+                ? <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>}
+            </button>
             <button className="chat-send"
               onClick={() => sendMessage(input)}
-              disabled={!input.trim() || sending}>
+              disabled={!input.trim() || sending || recording}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
             </button>
           </div>

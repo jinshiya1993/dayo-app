@@ -178,6 +178,25 @@ export const chat = {
   send: (id, message) => request(`/chat/${id}/message/`, { method: 'POST', body: JSON.stringify({ message }) }),
   confirm: (messageId) => request(`/chat/messages/${messageId}/confirm/`, { method: 'POST' }),
   cancel: (messageId) => request(`/chat/messages/${messageId}/cancel/`, { method: 'POST' }),
+  // Voice can't go through request() — multipart uploads must NOT set a JSON
+  // content type (the browser adds the multipart boundary itself).
+  sendVoice: async (id, audioBlob) => {
+    await csrfReady;
+    const fd = new FormData();
+    fd.append('audio', audioBlob, 'recording.webm');
+    const res = await fetch(`${API_BASE}/chat/${id}/voice/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'X-CSRFToken': getCookie('csrftoken') },
+      body: fd,
+    });
+    if (res.status === 401 || res.status === 403) return { error: 'unauthorized' };
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { error: data.error || "Couldn't hear that — try again." };
+    }
+    return res.json();
+  },
 };
 
 // Grocery
