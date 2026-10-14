@@ -3,6 +3,7 @@ import LogoBar from '../components/LogoBar';
 import GreetingStrip from '../components/GreetingStrip';
 import AlertPill from '../components/AlertPill';
 import DynamicDashboard from '../components/DynamicDashboard';
+import FloatingMic from '../components/FloatingMic';
 import {
   plans, reminders as remindersApi,
   profile as profileApi, children as childrenApi,
@@ -111,6 +112,7 @@ export default function Dashboard() {
   return (
     <>
       <LogoBar displayName={profileData?.display_name} />
+      <FloatingMic />
 
       {!plan && (
         <>
