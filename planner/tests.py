@@ -971,3 +971,96 @@ class RenameMealFlowTests(APITestCase):
             resp = self._rename()
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['added_to_grocery'], [])
+
+
+# ---------------------------------------------------------------------------
+# Voice: transcription service + voice chat endpoint (Gemini mocked)
+# ---------------------------------------------------------------------------
+from io import BytesIO
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+
+from planner.models import ChatConversation
+from planner.services.voice import _normalise_mime, transcribe
+
+
+class TranscribeServiceTests(TestCase):
+
+    def _mock_llm(self, content):
+        return patch('planner.services.voice.ChatGoogleGenerativeAI',
+                     return_value=SimpleNamespace(
+                         invoke=lambda messages: _FakeGeminiResponse(content=content)))
+
+    def test_normalise_strips_codec_suffix(self):
+        self.assertEqual(_normalise_mime('audio/webm;codecs=opus'), 'audio/webm')
+        self.assertEqual(_normalise_mime('AUDIO/MP4'), 'audio/mp4')
+
+    def test_empty_audio_is_rejected(self):
+        with self.assertRaises(ValueError):
+            transcribe(b'', 'audio/webm')
+
+    def test_oversized_audio_is_rejected(self):
+        with self.assertRaises(ValueError):
+            transcribe(b'x' * (9 * 1024 * 1024), 'audio/webm')
+
+    def test_unsupported_type_is_rejected(self):
+        with self.assertRaises(ValueError):
+            transcribe(b'x' * 100, 'application/pdf')
+
+    def test_transcript_is_returned(self):
+        with self._mock_llm('What can I make with paneer and peas?'):
+            self.assertEqual(
+                transcribe(b'fake-audio', 'audio/webm;codecs=opus'),
+                'What can I make with paneer and peas?')
+
+    def test_silence_returns_empty_string(self):
+        with self._mock_llm('NO_SPEECH'):
+            self.assertEqual(transcribe(b'fake-audio', 'audio/mp4'), '')
+
+
+class VoiceChatEndpointTests(APITestCase):
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='voice', password='x')
+        self.profile = UserProfile.objects.create(user=self.user, display_name='V')
+        self.client.force_authenticate(user=self.user)
+        self.conv = ChatConversation.objects.create(profile=self.profile)
+
+    def _audio(self, mime='audio/webm'):
+        return SimpleUploadedFile('clip.webm', b'fake-audio-bytes', content_type=mime)
+
+    def test_missing_audio_is_400(self):
+        resp = self.client.post('/api/v1/chat/%d/voice/' % self.conv.pk, {})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_spoken_message_reaches_the_chat_agent(self):
+        from planner.models import ChatMessage
+        reply = ChatMessage(conversation=self.conv, role='assistant',
+                            content='You could make matar paneer.')
+        with patch('planner.services.voice.transcribe',
+                   return_value='what can I make with paneer and peas') as tr, \
+             patch('planner.services.chat_service.ChatService.send_message',
+                   return_value=reply) as send:
+            resp = self.client.post(
+                '/api/v1/chat/%d/voice/' % self.conv.pk, {'audio': self._audio()})
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['transcript'], 'what can I make with paneer and peas')
+        self.assertEqual(resp.data['reply']['content'], 'You could make matar paneer.')
+        send.assert_called_once()
+
+    def test_silence_does_not_call_the_agent(self):
+        with patch('planner.services.voice.transcribe', return_value=''), \
+             patch('planner.services.chat_service.ChatService.send_message') as send:
+            resp = self.client.post(
+                '/api/v1/chat/%d/voice/' % self.conv.pk, {'audio': self._audio()})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['transcript'], '')
+        send.assert_not_called()
+
+    def test_bad_audio_is_a_clean_400(self):
+        with patch('planner.services.voice.transcribe',
+                   side_effect=ValueError('unsupported audio type')):
+            resp = self.client.post(
+                '/api/v1/chat/%d/voice/' % self.conv.pk, {'audio': self._audio()})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('unsupported', resp.data['error'])

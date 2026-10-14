@@ -52,6 +52,7 @@ urlpatterns = [
     path('chat/', views.ChatConversationListCreateView.as_view(), name='chat-list-create'),
     path('chat/<int:pk>/', views.ChatConversationDetailView.as_view(), name='chat-detail'),
     path('chat/<int:pk>/message/', views.ChatSendMessageView.as_view(), name='chat-send-message'),
+    path('chat/<int:pk>/voice/', views.ChatVoiceMessageView.as_view(), name='chat-voice-message'),
     path('chat/messages/<int:message_id>/confirm/', views.ChatMessageConfirmView.as_view(), name='chat-message-confirm'),
     path('chat/messages/<int:message_id>/cancel/', views.ChatMessageCancelView.as_view(), name='chat-message-cancel'),
 

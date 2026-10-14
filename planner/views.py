@@ -1394,6 +1394,56 @@ class ChatSendMessageView(APIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+class ChatVoiceMessageView(APIView):
+    """POST /chat/<pk>/voice/ — a spoken chat message.
+
+    Multipart upload with an `audio` file. Transcribes it, then runs the
+    transcript through the SAME chat agent a typed message uses, so voice is
+    just another way to talk to Dayo. Returns the transcript alongside the
+    reply so the UI can show what was heard — we never act on audio the user
+    can't see and correct.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        from .services.voice import transcribe
+
+        try:
+            conversation = ChatConversation.objects.get(
+                pk=pk, profile=request.user.profile,
+            )
+        except ChatConversation.DoesNotExist:
+            return Response({'error': 'Conversation not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        audio = request.FILES.get('audio')
+        if not audio:
+            return Response({'error': 'No audio was received.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            transcript = transcribe(audio.read(), audio.content_type)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            logger.exception('Voice transcription failed')
+            return Response({'error': "Couldn't hear that — try again."},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        if not transcript:
+            # Nothing was said — tell the UI gently, don't bother the agent.
+            return Response({'transcript': '', 'reply': None,
+                             'message': "I didn't catch anything — tap and try again."},
+                            status=status.HTTP_200_OK)
+
+        service = ChatService()
+        assistant_msg = service.send_message(conversation, transcript)
+        return Response({
+            'transcript': transcript,
+            'reply': ChatMessageSerializer(assistant_msg).data,
+        }, status=status.HTTP_201_CREATED)
+
+
 class ChatMessageConfirmView(APIView):
     permission_classes = [IsAuthenticated]
 
