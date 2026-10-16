@@ -60,7 +60,20 @@ export default function FloatingMic() {
     setBusy(false);
     if (res.error) { setError(res.error === 'unauthorized' ? 'Please sign in again.' : res.error); return; }
     if (!res.transcript) { setError(res.message || "I didn't catch anything — tap and try again."); return; }
-    setResult({ transcript: res.transcript, reply: res.reply?.content || '' });
+    const reply = res.reply || {};
+    // A change to her data (add to list, swap a meal) comes back as a pending
+    // action — Dayo never writes without a tap to confirm.
+    const pending = reply.action_status === 'pending' ? { id: reply.id } : null;
+    setResult({ transcript: res.transcript, reply: reply.content || '', pending, done: '' });
+  }
+
+  async function confirmPending() {
+    if (!result?.pending) return;
+    setBusy(true);
+    const res = await chat.confirm(result.pending.id);
+    setBusy(false);
+    if (res.error) { setError("Couldn't do that — try again."); return; }
+    setResult((r) => ({ ...r, pending: null, done: res.content || 'Done.' }));
   }
 
   const label = recording ? 'Stop recording' : 'Ask Dayo by voice';
@@ -78,6 +91,23 @@ export default function FloatingMic() {
               <div style={{ fontSize: 13.5, color: '#1a1a1a', marginBottom: 12, lineHeight: 1.5 }}>{result.transcript}</div>
               <div style={{ fontSize: 11, color: '#a0764f', letterSpacing: 0.4, marginBottom: 4 }}>DAYO</div>
               <div style={{ fontSize: 13.5, color: '#1a1a1a', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{result.reply}</div>
+              {result.pending && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                  <button onClick={confirmPending} disabled={busy}
+                    style={{ flex: 1.4, background: '#C2855A', color: '#fff', border: 'none',
+                             borderRadius: 11, padding: '10px', fontSize: 13, cursor: 'pointer' }}>
+                    Yes, do it
+                  </button>
+                  <button onClick={() => { setResult(null); setError(''); }}
+                    style={{ flex: 1, background: '#fff', color: '#6b6259', border: '0.5px solid #EDE8E3',
+                             borderRadius: 11, padding: '10px', fontSize: 13, cursor: 'pointer' }}>
+                    No
+                  </button>
+                </div>
+              )}
+              {result.done && (
+                <div style={{ fontSize: 13, color: '#1D7A4A', marginTop: 12 }}>✓ {result.done}</div>
+              )}
             </>
           )}
         </div>
