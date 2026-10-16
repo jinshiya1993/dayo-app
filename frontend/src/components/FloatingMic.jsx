@@ -103,7 +103,9 @@ export default function FloatingMic() {
 }
 
 const micStyle = {
-  position: 'fixed', right: 18, bottom: 92, zIndex: 50,
+  // Sit well above the bottom nav bar so it reads as its own "ask Dayo"
+  // button rather than crowding the Chat/Profile tabs.
+  position: 'fixed', right: 18, bottom: 118, zIndex: 50,
   width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   boxShadow: '0 4px 14px rgba(0,0,0,0.22)',
@@ -115,7 +117,7 @@ const pulseStyle = {
 };
 
 const cardStyle = {
-  position: 'fixed', left: 16, right: 16, bottom: 160, zIndex: 50,
+  position: 'fixed', left: 16, right: 16, bottom: 186, zIndex: 50,
   maxWidth: 400, margin: '0 auto',
   background: '#fff', border: '0.5px solid #EDE8E3', borderRadius: 16,
   padding: '16px 18px', boxShadow: '0 8px 28px rgba(0,0,0,0.16)',
