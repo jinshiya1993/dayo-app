@@ -82,14 +82,24 @@ export default function FloatingMic() {
     setMutedState(next);
   }
 
-  const showCard = result || error || processing;
+  const showCard = result || error || processing || listening;
 
   return (
     <>
       {showCard && (
         <div style={cardStyle}>
-          <button onClick={dismiss} style={closeStyle} aria-label="Close">×</button>
-          {processing && <div style={{ fontSize: 13, color: '#8a8178' }}>Listening to what you said…</div>}
+          {!listening && <button onClick={dismiss} style={closeStyle} aria-label="Close">×</button>}
+          {listening && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#C2855A', flexShrink: 0,
+                             transform: `scale(${1 + level * 1.2})`, transition: 'transform 0.08s' }} />
+              <div>
+                <div style={{ fontSize: 14, color: '#1a1a1a' }}>I'm listening…</div>
+                <div style={{ fontSize: 12, color: '#8a8178', marginTop: 2 }}>Speak now — I'll stop on my own when you're done.</div>
+              </div>
+            </div>
+          )}
+          {processing && <div style={{ fontSize: 13, color: '#8a8178' }}>Got it — one moment…</div>}
           {error && <div style={{ fontSize: 13, color: '#9A5B4B', lineHeight: 1.5 }}>{error}</div>}
           {result && !processing && (
             <>
