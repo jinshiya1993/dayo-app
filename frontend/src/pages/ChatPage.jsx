@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { chat, profile as profileApi, children as childrenApi } from '../services/api';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
+import { speak } from '../services/speech';
 
 function getDefaultChips(profileData, childList) {
   const userType = profileData?.user_type;
@@ -48,9 +50,11 @@ export default function ChatPage() {
   const [confirming, setConfirming] = useState(null);
   const [profileData, setProfileData] = useState(null);
   const [childList, setChildList] = useState([]);
-  const [recording, setRecording] = useState(false);
   const [voiceError, setVoiceError] = useState('');
-  const mediaRecorderRef = useRef(null);
+  const { state: voiceState, level: voiceLevel, toggle: toggleRecording } =
+    useVoiceRecorder({ onResult: handleVoice });
+  const recording = voiceState === 'listening';
+  const transcribing = voiceState === 'processing';
   const messagesEnd = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -129,39 +133,15 @@ export default function ChatPage() {
 
   async function sendMessage(text) { await doSendMessage(activeConvo, text); }
 
-  async function toggleRecording() {
-    if (recording) { stopRecording(); return; }
-    if (!activeConvo) return;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setVoiceError('Voice needs a newer browser — you can type instead.');
+  async function handleVoice({ blob, error }) {
+    if (error) {
+      setVoiceError(error === 'denied'
+        ? 'I need microphone access to listen. You can type instead.'
+        : 'Voice needs a newer browser — you can type instead.');
       return;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
-      const chunks = [];
-      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-      rec.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        setRecording(false);
-        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
-        await handleVoice(blob);
-      };
-      mediaRecorderRef.current = rec;
-      setVoiceError('');
-      rec.start();
-      setRecording(true);
-    } catch (err) {
-      setVoiceError('I need microphone access to listen. You can type instead.');
-    }
-  }
-
-  function stopRecording() {
-    const rec = mediaRecorderRef.current;
-    if (rec && rec.state !== 'inactive') rec.stop();
-  }
-
-  async function handleVoice(blob) {
+    if (!activeConvo) return;
+    setVoiceError('');
     setSending(true);
     const result = await chat.sendVoice(activeConvo.id, blob);
     if (result.error) {
@@ -175,7 +155,10 @@ export default function ChatPage() {
       return;
     }
     setMessages((prev) => [...prev, { id: Date.now(), role: 'user', content: result.transcript }]);
-    if (result.reply) setMessages((prev) => [...prev, result.reply]);
+    if (result.reply) {
+      setMessages((prev) => [...prev, result.reply]);
+      speak(result.reply.content);
+    }
     if (activeConvo.title === 'New Chat') {
       setActiveConvo({ ...activeConvo, title: result.transcript.slice(0, 50) });
     }
@@ -321,10 +304,11 @@ export default function ChatPage() {
 
         {/* Input */}
         <div className="chat-input-area">
-          {(voiceError || recording) && (
+          {(voiceError || recording || transcribing) && (
             <div style={{ fontSize: 12, color: recording ? '#C2855A' : '#9A7B5A',
                           padding: '0 4px 6px', textAlign: 'center' }}>
-              {recording ? 'Listening… tap the mic again when you\'re done' : voiceError}
+              {recording ? 'Listening… I\'ll stop when you\'re done'
+                : transcribing ? 'One moment…' : voiceError}
             </div>
           )}
           <div className="chat-input-wrapper">
@@ -334,23 +318,32 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={sending || recording}
+              disabled={sending || recording || transcribing}
             />
             <button
               type="button"
               onClick={toggleRecording}
-              disabled={sending && !recording}
+              disabled={transcribing || (sending && !recording)}
               aria-label={recording ? 'Stop recording' : 'Record a voice message'}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-                border: 'none', cursor: 'pointer', marginRight: 6,
+                border: 'none', cursor: 'pointer', marginRight: 6, position: 'relative',
                 background: recording ? '#C2855A' : 'transparent',
                 color: recording ? '#fff' : '#8a8178',
               }}>
-              {recording
+              {transcribing
+                ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8178" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2a10 10 0 0 1 10 10"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>
+                : recording
                 ? <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                 : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>}
+              {recording && (
+                <span style={{ position: 'absolute', inset: -4, borderRadius: '50%',
+                               border: '2px solid #C2855A', pointerEvents: 'none',
+                               transform: `scale(${1 + voiceLevel * 0.8})`,
+                               opacity: 0.3 + voiceLevel * 0.5,
+                               transition: 'transform 0.08s, opacity 0.08s' }} />
+              )}
             </button>
             <button className="chat-send"
               onClick={() => sendMessage(input)}
