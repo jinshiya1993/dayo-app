@@ -82,7 +82,10 @@ export default function FloatingMic() {
     setMutedState(next);
   }
 
-  const showCard = result || error || processing || listening;
+  // No card while transcribing — the mic button's own spinner is feedback
+  // enough, and a card popping over the page the moment you stop talking is
+  // intrusive. The card is only for the answer, an error, or while listening.
+  const showCard = result || error || listening;
 
   return (
     <>
@@ -99,8 +102,7 @@ export default function FloatingMic() {
               </div>
             </div>
           )}
-          {processing && <div style={{ fontSize: 13, color: '#8a8178' }}>Got it — one moment…</div>}
-          {error && <div style={{ fontSize: 13, color: '#9A5B4B', lineHeight: 1.5 }}>{error}</div>}
+          {error && !listening && <div style={{ fontSize: 13, color: '#9A5B4B', lineHeight: 1.5 }}>{error}</div>}
           {result && !processing && (
             <>
               <div style={labelStyle}>YOU ASKED</div>
